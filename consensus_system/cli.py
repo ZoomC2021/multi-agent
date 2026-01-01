@@ -27,11 +27,14 @@ def create_agents_from_config(config: dict) -> list:
     """
     agents = []
     
-    for agent_config in config['agents']:
+    # Use config.get() to handle missing agents key gracefully
+    agent_configs = config.get('agents', [])
+    
+    for agent_config in agent_configs:
         agent = ConsensusAgent(
-            agent_id=agent_config['name'],
-            role=agent_config['role'],
-            instructions=agent_config['instructions'],
+            agent_id=agent_config.get('name', 'unknown'),
+            role=agent_config.get('role', 'Agent'),
+            instructions=agent_config.get('instructions', ''),
             initial_value=agent_config.get('initial_value', 0.0),
             llm=agent_config.get('llm', 'gpt-4'),
             verbose=True
@@ -65,7 +68,8 @@ def run_consensus_system(
         config = create_default_config()
         
     # Create agents
-    print(f"\nCreating {len(config['agents'])} agents...")
+    agent_configs = config.get('agents', [])
+    print(f"\nCreating {len(agent_configs)} agents...")
     agents = create_agents_from_config(config)
     
     for agent in agents:
@@ -99,10 +103,12 @@ def run_consensus_system(
         print(f"\n{'='*60}")
         print(f"Task Results")
         print(f"{'='*60}")
-        print(f"Task: {result['task']}")
-        print(f"Consensus achieved: {result['consensus']['converged']}")
-        print(f"Iterations: {result['consensus']['iterations']}")
-        print(f"Final decision: {result['final_decision']}")
+        print(f"Task: {result.get('task', 'N/A')}")
+        
+        consensus_data = result.get('consensus', {})
+        print(f"Consensus achieved: {consensus_data.get('converged', False)}")
+        print(f"Iterations: {consensus_data.get('iterations', 0)}")
+        print(f"Final decision: {result.get('final_decision', 'N/A')}")
         
         # Save results if output path provided
         if output:
@@ -123,12 +129,16 @@ def run_consensus_system(
         
         # Set some initial values
         import random
+        random.seed(42)  # For reproducible demos
         for agent in agents:
             agent.value = random.uniform(1.0, 10.0)
             
         print("\nInitial values:")
         for agent in agents:
-            print(f"  {agent.role}: {agent.value:.2f}")
+            if isinstance(agent.value, (int, float)):
+                print(f"  {agent.role}: {agent.value:.2f}")
+            else:
+                print(f"  {agent.role}: {agent.value}")
             
         # Run consensus
         result = manager.run_consensus(
@@ -140,11 +150,14 @@ def run_consensus_system(
         print(f"{'='*60}")
         print(f"Converged: {result['converged']}")
         print(f"Iterations: {result['iterations']}")
-        print(f"Consensus value: {result['consensus_value']:.2f}")
+        print(f"Consensus value: {result['consensus_value']}")
         
         print("\nFinal values:")
         for agent_id, value in result['final_values'].items():
-            print(f"  {agent_id}: {value:.2f}")
+            if isinstance(value, (int, float)):
+                print(f"  {agent_id}: {value:.2f}")
+            else:
+                print(f"  {agent_id}: {value}")
             
         if output:
             output_path = Path(output)
@@ -217,6 +230,11 @@ Examples:
         '--interactive', '-i',
         action='store_true',
         help='Run in interactive mode (not headless)'
+    )
+    run_parser.add_argument(
+        '--verbose', '-v',
+        action='store_true',
+        help='Enable verbose output with detailed logging'
     )
     
     # Init command

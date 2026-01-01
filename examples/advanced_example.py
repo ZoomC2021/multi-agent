@@ -81,62 +81,82 @@ def main():
     
     print("\nTask:")
     print("-" * SEPARATOR_WIDTH)
-    print(result['task'][:200] + "...")
+    task_str = str(result.get('task', ''))
+    print(task_str[:200] + ("..." if len(task_str) > 200 else ""))
     
     print("\n\nAgent Responses:")
     print("-" * SEPARATOR_WIDTH)
-    for agent_result in result['agent_results']:
-        print(f"\n{agent_result['role']}:")
-        print(f"  Response: {agent_result['response'][:100]}...")
+    for agent_result in result.get('agent_results', []):
+        role = agent_result.get('role', 'Unknown Agent')
+        print(f"\n{role}:")
+        response = str(agent_result.get('response', ''))
+        print(f"  Response: {response[:100]}...")
         print(f"  Mode: {agent_result.get('mode', 'standard')}")
     
     print("\n\nConsensus Details:")
     print("-" * SEPARATOR_WIDTH)
-    consensus = result['consensus']
-    print(f"Converged: {consensus['converged']}")
-    print(f"Iterations: {consensus['iterations']}")
-    print(f"Final Consensus Value: {consensus['consensus_value']:.2f}")
+    consensus = result.get('consensus', {})
+    print(f"Converged: {consensus.get('converged', False)}")
+    print(f"Iterations: {consensus.get('iterations', 0)}")
+    
+    consensus_value = consensus.get('consensus_value')
+    if isinstance(consensus_value, (int, float)):
+        print(f"Final Consensus Value: {consensus_value:.2f}")
+    else:
+        print(f"Final Consensus Value: {consensus_value}")
     
     print("\n\nFinal Agent Values:")
     print("-" * SEPARATOR_WIDTH)
-    for agent_id, value in consensus['final_values'].items():
-        print(f"  {agent_id}: {value:.2f}")
+    for agent_id, value in consensus.get('final_values', {}).items():
+        if isinstance(value, (int, float)):
+            print(f"  {agent_id}: {value:.2f}")
+        else:
+            print(f"  {agent_id}: {value}")
     
     print("\n\nInterpretation:")
     print("-" * SEPARATOR_WIDTH)
-    consensus_value = consensus['consensus_value']
     
-    if consensus_value < 3.0:
-        status = "CRITICAL ISSUES FOUND"
-        symbol = "✗"
-        recommendation = "Immediate attention required. Multiple agents identified serious problems."
-    elif consensus_value < 5.0:
-        status = "NEEDS IMPROVEMENT"
-        symbol = "⚠"
-        recommendation = "Several issues identified. Code requires refactoring."
-    elif consensus_value < 7.0:
-        status = "ACCEPTABLE"
-        symbol = "○"
-        recommendation = "Code is functional but could benefit from improvements."
-    elif consensus_value < 8.5:
-        status = "GOOD QUALITY"
-        symbol = "✓"
-        recommendation = "Code meets quality standards with minor suggestions."
+    if isinstance(consensus_value, (int, float)):
+        if consensus_value < 3.0:
+            status = "CRITICAL ISSUES FOUND"
+            symbol = "✗"
+            recommendation = "Immediate attention required. Multiple agents identified serious problems."
+        elif consensus_value < 5.0:
+            status = "NEEDS IMPROVEMENT"
+            symbol = "⚠"
+            recommendation = "Several issues identified. Code requires refactoring."
+        elif consensus_value < 7.0:
+            status = "ACCEPTABLE"
+            symbol = "○"
+            recommendation = "Code is functional but could benefit from improvements."
+        elif consensus_value < 8.5:
+            status = "GOOD QUALITY"
+            symbol = "✓"
+            recommendation = "Code meets quality standards with minor suggestions."
+        else:
+            status = "EXCELLENT"
+            symbol = "✓✓"
+            recommendation = "Code demonstrates best practices and high quality."
+        
+        print(f"{symbol} Overall Assessment: {status}")
+        print(f"   Recommendation: {recommendation}")
     else:
-        status = "EXCELLENT"
-        symbol = "✓✓"
-        recommendation = "Code demonstrates best practices and high quality."
-    
-    print(f"{symbol} Overall Assessment: {status}")
-    print(f"   Recommendation: {recommendation}")
+        print(f"○ Overall Assessment: {consensus_value}")
     
     # Show convergence history
-    if len(consensus['history']) > 0:
+    history = consensus.get('history', [])
+    if len(history) > 0:
         print("\n\nConsensus Convergence History:")
         print("-" * SEPARATOR_WIDTH)
-        for i, iteration in enumerate(consensus['history'][:5]):  # Show first 5
-            print(f"Iteration {iteration['iteration']}: ", end="")
-            values = [f"{v:.2f}" for v in iteration['values'].values()]
+        for iteration in history[:5]:  # Show first 5
+            iter_num = iteration.get('iteration', '?')
+            print(f"Iteration {iter_num}: ", end="")
+            values = []
+            for v in iteration.get('values', {}).values():
+                if isinstance(v, (int, float)):
+                    values.append(f"{v:.2f}")
+                else:
+                    values.append(str(v))
             print(f"[{', '.join(values)}]")
     
     print("\n" + "="*SEPARATOR_WIDTH)

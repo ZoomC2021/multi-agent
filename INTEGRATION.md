@@ -64,6 +64,12 @@ result = manager.execute_collaborative_task(
     task="Review this code for security issues: [your code here]",
     consensus_strategy="average"
 )
+
+# Access results safely
+for agent_result in result.get('agent_results', []):
+    role = agent_result.get('role', 'Unknown Agent')
+    response = str(agent_result.get('response', ''))
+    print(f"{role}: {response[:100]}...")
 ```
 
 ### 4. CLI with PraisonAI
@@ -235,18 +241,22 @@ consensus-cli run --config agents.yaml --verbose
 ```python
 result = manager.execute_collaborative_task(task="...")
 
-for agent_result in result['agent_results']:
-    print(f"{agent_result['role']}: {agent_result['response']}")
+for agent_result in result.get('agent_results', []):
+    role = agent_result.get('role', 'Unknown Agent')
+    response = str(agent_result.get('response', ''))
+    print(f"{role}: {response[:100]}...")
     print(f"Mode: {agent_result.get('mode')}")  # 'praison' or 'simulation'
 ```
 
 ### Consensus History
 
 ```python
-consensus = result['consensus']
+consensus = result.get('consensus', {})
 
-for iteration in consensus['history']:
-    print(f"Iteration {iteration['iteration']}: {iteration['values']}")
+for iteration in consensus.get('history', []):
+    iter_num = iteration.get('iteration', '?')
+    values = iteration.get('values', {})
+    print(f"Iteration {iter_num}: {values}")
 ```
 
 ## Troubleshooting

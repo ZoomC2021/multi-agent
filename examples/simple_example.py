@@ -74,24 +74,34 @@ def main():
     print("RESULTS")
     print("="*SEPARATOR_WIDTH)
     
-    print(f"\nConverged: {result['converged']}")
-    print(f"Iterations: {result['iterations']}")
-    print(f"Consensus Score: {result['consensus_value']:.2f}")
+    print(f"\nConverged: {result.get('converged', False)}")
+    print(f"Iterations: {result.get('iterations', 0)}")
+    
+    consensus_value = result.get('consensus_value')
+    if isinstance(consensus_value, (int, float)):
+        print(f"Consensus Score: {consensus_value:.2f}")
+    else:
+        print(f"Consensus Score: {consensus_value}")
     
     print("\nFinal agent scores:")
     for agent in agents:
-        print(f"  {agent.role}: {agent.value:.2f}")
+        if isinstance(agent.value, (int, float)):
+            print(f"  {agent.role}: {agent.value:.2f}")
+        else:
+            print(f"  {agent.role}: {agent.value}")
     
     print("\nInterpretation:")
-    consensus_score = result['consensus_value']
-    if consensus_score >= 8.0:
-        print("  ✓ Code quality is EXCELLENT")
-    elif consensus_score >= 7.0:
-        print("  ✓ Code quality is GOOD")
-    elif consensus_score >= 6.0:
-        print("  ⚠ Code quality is ACCEPTABLE (improvements recommended)")
+    if isinstance(consensus_value, (int, float)):
+        if consensus_score >= 8.0:
+            print("  ✓ Code quality is EXCELLENT")
+        elif consensus_score >= 7.0:
+            print("  ✓ Code quality is GOOD")
+        elif consensus_score >= 6.0:
+            print("  ⚠ Code quality is ACCEPTABLE (improvements recommended)")
+        else:
+            print("  ✗ Code quality needs SIGNIFICANT improvement")
     else:
-        print("  ✗ Code quality needs SIGNIFICANT improvement")
+        print(f"  ○ Assessment: {consensus_value}")
     
     print("\n" + "="*SEPARATOR_WIDTH)
     print("Example completed successfully!")

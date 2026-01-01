@@ -59,16 +59,22 @@ class ConsensusManager:
             for i, agent in enumerate(self.agents):
                 next_agent = self.agents[(i + 1) % len(self.agents)]
                 prev_agent = self.agents[(i - 1) % len(self.agents)]
-                agent.add_neighbor(next_agent)
-                agent.add_neighbor(prev_agent)
+                if next_agent != agent:
+                    agent.add_neighbor(next_agent)
+                if prev_agent != agent:
+                    agent.add_neighbor(prev_agent)
                 
         elif topology == "chain":
             # Agents are connected in a chain
             for i, agent in enumerate(self.agents):
                 if i > 0:
-                    agent.add_neighbor(self.agents[i - 1])
+                    prev_agent = self.agents[i - 1]
+                    if prev_agent != agent:
+                        agent.add_neighbor(prev_agent)
                 if i < len(self.agents) - 1:
-                    agent.add_neighbor(self.agents[i + 1])
+                    next_agent = self.agents[i + 1]
+                    if next_agent != agent:
+                        agent.add_neighbor(next_agent)
                     
         if self.verbose:
             print(f"Network topology: {topology}")
@@ -90,6 +96,12 @@ class ConsensusManager:
         Returns:
             True if converged, False otherwise
         """
+        # Handle empty agent list
+        if not self.agents:
+            if self.verbose:
+                print("No agents available for consensus iteration")
+            return False
+            
         # Save current values
         old_values = [agent.value for agent in self.agents]
         
@@ -149,10 +161,24 @@ class ConsensusManager:
         Returns:
             Final consensus results
         """
+        # Handle empty agent list
+        if not self.agents:
+            if self.verbose:
+                print("No agents available for consensus")
+            return {
+                "converged": False,
+                "iterations": 0,
+                "consensus_value": None,
+                "final_values": {},
+                "history": []
+            }
+            
         if self.verbose:
             print(f"Starting consensus with {len(self.agents)} agents...")
             print(f"Strategy: {strategy}, Max iterations: {self.max_iterations}")
             
+        # Clear consensus history at the start
+        self.consensus_history.clear()
         self.iteration_count = 0
         converged = False
         
@@ -164,15 +190,18 @@ class ConsensusManager:
         final_values = [agent.value for agent in self.agents]
         
         try:
-            if all(isinstance(v, (int, float)) for v in final_values):
+            if final_values and all(isinstance(v, (int, float)) for v in final_values):
                 consensus_value = sum(final_values) / len(final_values)
             else:
-                # For non-numeric, use most common value
-                value_counts = {}
-                for val in final_values:
-                    val_str = str(val)
-                    value_counts[val_str] = value_counts.get(val_str, 0) + 1
-                consensus_value = max(value_counts, key=value_counts.get)
+                # For non-numeric or empty, use most common value
+                if final_values:
+                    value_counts = {}
+                    for val in final_values:
+                        val_str = str(val)
+                        value_counts[val_str] = value_counts.get(val_str, 0) + 1
+                    consensus_value = max(value_counts, key=value_counts.get)
+                else:
+                    consensus_value = None
         except (TypeError, ValueError, AttributeError):
             consensus_value = None
             
@@ -223,7 +252,12 @@ class ConsensusManager:
         for i, agent in enumerate(self.agents):
             # Extract some metric from the result to use as value
             # In a real system, this would be a quality score or confidence level
-            agent.update_value(i + 1)  # Placeholder value
+            new_value = i + 1.0  # Placeholder value
+            agent.update_value(new_value)
+            
+            # Ensure the agent's result dictionary reflects the updated value
+            if i < len(agent_results):
+                agent_results[i]['value'] = new_value
             
         # Run consensus to aggregate results
         consensus_result = self.run_consensus(strategy=consensus_strategy)

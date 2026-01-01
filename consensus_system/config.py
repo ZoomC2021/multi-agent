@@ -21,7 +21,7 @@ def load_config(config_path: str) -> Dict[str, Any]:
     """
     config_file = Path(config_path)
     
-    if not config_file.exists():
+    if not config_file.is_file():
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
         
     with open(config_file, 'r') as f:

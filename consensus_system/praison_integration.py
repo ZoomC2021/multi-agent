@@ -89,6 +89,15 @@ class PraisonConsensusAgent(ConsensusAgent):
                 # Execute the task with PraisonAI
                 response = self.praison_agent.start(task)
                 
+                # Extract a quality score or metric from the response
+                # This is a simplified example - in practice, you'd parse the response
+                # to extract a meaningful consensus value
+                if isinstance(response, str):
+                    # Simple heuristic: longer responses might indicate more confidence
+                    self.update_value(min(len(response) / 100.0, 10.0))
+                else:
+                    self.update_value(0.0) # Default for non-string
+                    
                 result = {
                     "agent_id": self.agent_id,
                     "role": self.role,
@@ -98,13 +107,6 @@ class PraisonConsensusAgent(ConsensusAgent):
                     "context": context or {},
                     "mode": "praison"
                 }
-                
-                # Extract a quality score or metric from the response
-                # This is a simplified example - in practice, you'd parse the response
-                # to extract a meaningful consensus value
-                if isinstance(response, str):
-                    # Simple heuristic: longer responses might indicate more confidence
-                    self.value = min(len(response) / 100.0, 10.0)
                     
             except Exception as e:
                 if self.verbose:
@@ -115,7 +117,8 @@ class PraisonConsensusAgent(ConsensusAgent):
             result = self._simulate_execution(task, context)
             
         if self.verbose:
-            print(f"[{self.role}] Result: {result['response'][:100]}...")
+            response_preview = str(result.get('response', ''))[:100]
+            print(f"[{self.role}] Result: {response_preview}...")
             
         return result
         
@@ -141,6 +144,12 @@ class PraisonConsensusAgent(ConsensusAgent):
         
         response = responses.get(self.role, f"{self.role} processed: {task}")
         
+        # Update value before building result to avoid stale values
+        if isinstance(response, str):
+            self.update_value(min(len(response) / 100.0, 10.0))
+        else:
+            self.update_value(0.0)
+
         return {
             "agent_id": self.agent_id,
             "role": self.role,

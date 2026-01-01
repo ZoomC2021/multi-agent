@@ -124,9 +124,10 @@ All functionality has been thoroughly tested:
 ✓ CodeQL analysis: 0 vulnerabilities found
 
 ### Code Review
-✓ All review comments addressed  
-✓ Exception handling improved  
-✓ Magic numbers extracted to constants  
+✓ All review comments addressed (division by zero, stale values, type safety)
+✓ Exception handling improved with specific types and logging
+✓ CLI robustness improved with better argument parsing and validation
+✓ Safe dictionary access and numeric formatting guards added
 
 ## Usage Examples
 
@@ -159,7 +160,11 @@ manager = ConsensusManager(agents, verbose=True)
 manager.setup_network("fully_connected")
 result = manager.run_consensus()
 
-print(f"Consensus: {result['consensus_value']}")
+consensus_val = result.get('consensus_value')
+if isinstance(consensus_val, (int, float)):
+    print(f"Consensus: {consensus_val:.2f}")
+else:
+    print(f"Consensus: {consensus_val}")
 ```
 
 ## Integration with PraisonAI

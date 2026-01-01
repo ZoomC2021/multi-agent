@@ -74,29 +74,40 @@ class ConsensusAgent:
             return self.value
             
         if strategy == "average":
-            # Average consensus (for numeric values)
-            try:
-                if isinstance(self.value, (int, float)):
-                    all_values = [self.value] + neighbor_values
-                    new_value = sum(all_values) / len(all_values)
+            # Average consensus (for numeric values, excluding booleans)
+            if isinstance(self.value, (int, float)) and not isinstance(self.value, bool):
+                # Filter neighbor values to include only numeric types (excluding booleans)
+                numeric_neighbor_values = [v for v in neighbor_values if isinstance(v, (int, float)) and not isinstance(v, bool)]
+                all_numeric_values = [self.value] + numeric_neighbor_values
+                if all_numeric_values:
+                    new_value = sum(all_numeric_values) / len(all_numeric_values)
                     self.update_value(new_value)
                     return new_value
-            except (TypeError, ValueError):
-                pass
                 
         elif strategy == "majority":
-            # Majority voting (for categorical values)
-            all_values = [self.value] + neighbor_values
+            # Majority voting (for categorical values, excluding None)
+            # Filter out None values
+            all_values = [self.value] + [v for v in neighbor_values if v is not None]
+            # Remove None values from all_values
+            valid_values = [v for v in all_values if v is not None]
+            
+            if not valid_values:
+                return self.value
+                
             value_counts = {}
-            for val in all_values:
+            for val in valid_values:
                 val_str = str(val)
                 value_counts[val_str] = value_counts.get(val_str, 0) + 1
             majority_value = max(value_counts, key=value_counts.get)
             # Try to convert back to original type
-            for val in all_values:
+            for val in valid_values:
                 if str(val) == majority_value:
                     self.update_value(val)
                     return val
+                    
+        elif strategy == "weighted":
+            # Weighted consensus strategy not yet implemented
+            raise NotImplementedError("Weighted consensus strategy is not yet implemented. Use 'average' or 'majority'.")
                     
         return self.value
         

@@ -148,8 +148,12 @@ manager.setup_network("fully_connected")
 # Run consensus
 result = manager.run_consensus(strategy="average")
 
-print(f"Converged: {result['converged']}")
-print(f"Consensus value: {result['consensus_value']:.2f}")
+print(f"Converged: {result.get('converged', False)}")
+consensus_value = result.get('consensus_value')
+if isinstance(consensus_value, (int, float)):
+    print(f"Consensus value: {consensus_value:.2f}")
+else:
+    print(f"Consensus value: {consensus_value}")
 ```
 
 ### Example 2: Collaborative Task
@@ -176,10 +180,12 @@ result = manager.execute_collaborative_task(
 )
 
 # Access results
-for agent_result in result['agent_results']:
-    print(f"{agent_result['role']}: {agent_result['response']}")
+for agent_result in result.get('agent_results', []):
+    role = agent_result.get('role', 'Unknown Agent')
+    response = str(agent_result.get('response', ''))
+    print(f"{role}: {response[:100]}...")
 
-print(f"Final decision: {result['final_decision']}")
+print(f"Final decision: {result.get('final_decision')}")
 ```
 
 ### Example 3: Custom Network Topology
@@ -223,9 +229,15 @@ manager.setup_network("fully_connected")
 
 # Define callback to monitor each iteration
 def iteration_callback(state):
-    iteration = state['iteration']
-    values = state['values']
-    print(f"Iteration {iteration}: {[f'{v:.2f}' for v in values.values()]}")
+    iteration = state.get('iteration', '?')
+    values = state.get('values', {})
+    formatted_values = []
+    for v in values.values():
+        if isinstance(v, (int, float)):
+            formatted_values.append(f"{v:.2f}")
+        else:
+            formatted_values.append(str(v))
+    print(f"Iteration {iteration}: {formatted_values}")
 
 # Run with callback
 result = manager.run_consensus(callback=iteration_callback)
@@ -314,15 +326,18 @@ manager.setup_network("fully_connected")
 # Get overall quality score
 result = manager.run_consensus(strategy="average")
 
-overall_score = result['consensus_value']
-print(f"Overall Code Quality: {overall_score:.1f}/10")
-
-if overall_score >= 8.0:
-    print("Status: EXCELLENT")
-elif overall_score >= 6.0:
-    print("Status: GOOD")
+overall_score = result.get('consensus_value')
+if isinstance(overall_score, (int, float)):
+    print(f"Overall Code Quality: {overall_score:.1f}/10")
+    
+    if overall_score >= 8.0:
+        print("Status: EXCELLENT")
+    elif overall_score >= 6.0:
+        print("Status: GOOD")
+    else:
+        print("Status: NEEDS IMPROVEMENT")
 else:
-    print("Status: NEEDS IMPROVEMENT")
+    print(f"Overall Code Quality: {overall_score}")
 ```
 
 ### 4. Continuous Integration
