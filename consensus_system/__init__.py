@@ -9,6 +9,7 @@ __version__ = "0.1.0"
 from consensus_system.agent import ConsensusAgent
 from consensus_system.manager import ConsensusManager
 from consensus_system.external_agent import ExternalCLIConsensusAgent, create_external_cli_agents
+from consensus_system.praison_integration import PraisonConsensusAgent
 from consensus_system.integrations import (
     get_available_integrations,
     ClaudeCodeIntegration,
@@ -29,6 +30,7 @@ __all__ = [
     "ConsensusManager",
     "load_config",
     "ExternalCLIConsensusAgent",
+    "PraisonConsensusAgent",
     "create_external_cli_agents",
     "get_available_integrations",
     "ClaudeCodeIntegration",

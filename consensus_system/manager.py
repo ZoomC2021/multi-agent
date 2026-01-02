@@ -106,14 +106,21 @@ class ConsensusManager:
                 print("No agents available for consensus iteration")
             return False
 
-        # Save current values
-        old_values = [agent.value for agent in self.agents]
-
-        # Update each agent's value based on consensus
+        # Calculate new values for all agents first (Simultaneous Update / Jacobi method)
+        # This prevents order-dependent bias where early-updated agents influence later ones in the same round
+        new_values_map = {}
         for agent in self.agents:
-            agent.consensus_update(strategy=strategy)
+            new_values_map[agent] = agent.calculate_consensus_value(strategy)
 
-        # Get new values
+        # Apply updates
+        changes = []
+        for agent, new_val in new_values_map.items():
+            old_val = agent.value
+            if new_val != old_val:
+                agent.update_value(new_val)
+                changes.append((old_val, new_val))
+
+        # Get new values for history
         new_values = [agent.value for agent in self.agents]
 
         # Record iteration state
@@ -129,20 +136,29 @@ class ConsensusManager:
             for agent in self.agents:
                 print(f"  {agent.role}: {agent.value}")
 
-        # Check convergence (for numeric values)
+        # Check convergence
+        # We consider it converged if no values changed significantly
+        if not changes:
+            if self.verbose:
+                print("Converged! No values changed.")
+            if callback:
+                callback(iteration_state)
+            return True
+
+        # Check numeric convergence threshold if changes occurred
         try:
-            # Filter out None values and check if we have any numeric values to compare
-            valid_pairs = [
-                (new, old)
-                for new, old in zip(new_values, old_values)
+            # Filter for numeric changes only
+            numeric_changes = [
+                abs(new - old)
+                for old, new in changes
                 if isinstance(new, (int, float))
                 and isinstance(old, (int, float))
                 and not isinstance(new, bool)
                 and not isinstance(old, bool)
             ]
 
-            if valid_pairs:
-                max_change = max(abs(new - old) for new, old in valid_pairs)
+            if numeric_changes:
+                max_change = max(numeric_changes)
                 converged = max_change < self.convergence_threshold
 
                 if self.verbose and converged:
@@ -152,6 +168,12 @@ class ConsensusManager:
                     callback(iteration_state)
 
                 return converged
+            else:
+                # If changes were non-numeric (and we know changes list is not empty),
+                # then we haven't converged yet because equality check `new != old` passed.
+                # Only if NO changes occurred (handled above) do we return True for non-numeric.
+                return False
+
         except (TypeError, ValueError):
             pass
 
@@ -216,7 +238,10 @@ class ConsensusManager:
                     for val in final_values:
                         val_str = str(val)
                         value_counts[val_str] = value_counts.get(val_str, 0) + 1
-                    consensus_value = max(value_counts, key=lambda k: value_counts[k])
+                    if value_counts:
+                        consensus_value = max(value_counts, key=lambda k: value_counts[k])
+                    else:
+                        consensus_value = None
                 else:
                     consensus_value = None
         except (TypeError, ValueError, AttributeError):
@@ -256,17 +281,43 @@ class ConsensusManager:
             print(f"\n=== Collaborative Task ===")
             print(f"Task: {task}")
 
-        # Each agent executes the task
+        # Each agent executes the task in parallel
+        import concurrent.futures
+        
         agent_results = []
+        if self.verbose:
+            print(f"Executing task with {len(self.agents)} agents in parallel...")
+            
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.agents)) as executor:
+            # Map each agent to an execution future
+            future_to_agent = {
+                executor.submit(agent.execute, task, context): agent 
+                for agent in self.agents
+            }
+            
+            # Collect results mapped to agents
+            agent_results_map = {}
+            for future in concurrent.futures.as_completed(future_to_agent):
+                agent = future_to_agent[future]
+                try:
+                    result = future.result()
+                    agent_results_map[agent.agent_id] = result
+                except Exception as e:
+                    if self.verbose:
+                        print(f"Error executing agent {agent.role}: {e}")
+                    agent_results_map[agent.agent_id] = {
+                        "agent_id": agent.agent_id,
+                        "role": agent.role,
+                        "error": str(e),
+                        "value": agent.value
+                    }
+
+        # Reconstruct results list in original agent order
         for agent in self.agents:
-            result = agent.execute(task, context)
+            result = agent_results_map.get(agent.agent_id, {})
             agent_results.append(result)
 
-        # Update agent values based on their task results
-        for i, agent in enumerate(self.agents):
-            # Extract consensus value from the result if available
-            # If not, use a default value based on result content
-            result = agent_results[i] if i < len(agent_results) else {}
+            # Extract consensus value from the result if available, or calculate fallback
             new_value = result.get("value")
 
             if new_value is None:
@@ -279,10 +330,9 @@ class ConsensusManager:
                     new_value = 5.0  # Default neutral value
 
             agent.update_value(new_value)
-
-            # Ensure the agent's result dictionary reflects the updated value
-            if i < len(agent_results):
-                agent_results[i]["value"] = new_value
+            
+            # Ensure the result dictionary reflects the updated value
+            result["value"] = new_value
 
         # Run consensus to aggregate results
         consensus_result = self.run_consensus(strategy=consensus_strategy)

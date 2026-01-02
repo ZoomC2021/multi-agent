@@ -117,20 +117,22 @@ class ExternalCLIConsensusAgent(ConsensusAgent):
             Result dictionary with agent's response
         """
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # We're in an async context, create a new thread
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(
-                        asyncio.run, 
-                        self.execute_async(task, context)
-                    )
-                    return future.result()
-            else:
-                return loop.run_until_complete(self.execute_async(task, context))
+            # Check if there is a running loop in the CURRENT thread
+            loop = asyncio.get_running_loop()
         except RuntimeError:
-            # No event loop, create one
+            loop = None
+
+        if loop and loop.is_running():
+            # We're in an async context, create a new thread
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(
+                    asyncio.run, 
+                    self.execute_async(task, context)
+                )
+                return future.result()
+        else:
+            # No running loop in this thread, safe to use asyncio.run
             return asyncio.run(self.execute_async(task, context))
     
     async def execute_async(self, task: str, context: Optional[Dict] = None) -> Dict[str, Any]:

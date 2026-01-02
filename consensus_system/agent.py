@@ -22,6 +22,7 @@ class ConsensusAgent:
         role: str,
         instructions: str,
         initial_value: Optional[Any] = None,
+        weight: float = 1.0,
         llm: str = "gpt-4",
         verbose: bool = False,
     ):
@@ -33,6 +34,7 @@ class ConsensusAgent:
             role: Role/name of the agent (e.g., "CodeAnalyzer", "CodeReviewer")
             instructions: Instructions/prompt for the agent's behavior
             initial_value: Initial state/value for consensus
+            weight: Voting weight for weighted consensus (default: 1.0)
             llm: Language model to use (default: gpt-4)
             verbose: Enable verbose logging
         """
@@ -40,6 +42,7 @@ class ConsensusAgent:
         self.role = role
         self.instructions = instructions
         self.value = initial_value
+        self.weight = weight
         self.llm = llm
         self.verbose = verbose
         self.neighbors: List["ConsensusAgent"] = []
@@ -55,15 +58,15 @@ class ConsensusAgent:
         self.history.append(self.value)
         self.value = new_value
 
-    def consensus_update(self, strategy: str = "average") -> Any:
+    def calculate_consensus_value(self, strategy: str = "average") -> Any:
         """
-        Perform a consensus update based on neighbors' values.
+        Calculate the new consensus value based on neighbors' values, without updating state.
 
         Args:
             strategy: Consensus strategy ("average", "majority", "weighted")
 
         Returns:
-            Updated consensus value
+            Calculated consensus value
         """
         if not self.neighbors:
             return self.value
@@ -89,12 +92,10 @@ class ConsensusAgent:
             all_numeric_values.extend(numeric_neighbor_values)
 
             if all_numeric_values:
-                new_value = sum(all_numeric_values) / len(all_numeric_values)
-                self.update_value(new_value)
-                return new_value
+                return sum(all_numeric_values) / len(all_numeric_values)
 
         elif strategy == "majority":
-            # Majority voting (for categorical values, excluding None)
+            # Majority voting (for categorical values)
             all_values = []
             if self.value is not None:
                 all_values.append(self.value)
@@ -103,25 +104,70 @@ class ConsensusAgent:
             if not all_values:
                 return self.value
 
-            value_counts: Dict[str, int] = {}
+            # Use precise counting instead of string conversion
+            # We use a list of (value, count) tuples since values might not be hashable
+            value_counts = []
             for val in all_values:
-                val_str = str(val)
-                value_counts[val_str] = value_counts.get(val_str, 0) + 1
-            majority_value_str = max(value_counts, key=lambda k: value_counts[k])
-
-            # Try to find original value to maintain type
-            for val in all_values:
-                if str(val) == majority_value_str:
-                    self.update_value(val)
-                    return val
+                found = False
+                for i, (existing_val, count) in enumerate(value_counts):
+                    if existing_val == val:
+                        value_counts[i] = (existing_val, count + 1)
+                        found = True
+                        break
+                if not found:
+                    value_counts.append((val, 1))
+            
+            # Find max count
+            if not value_counts:
+                 return self.value
+                 
+            # Find the value with the highest count
+            # In case of tie, pick the first one encountered (deterministic for stable sort)
+            winner = max(value_counts, key=lambda x: x[1])
+            return winner[0]
 
         elif strategy == "weighted":
-            # For now, weighted strategy is same as average until trust scores are added
-            # This avoids NotImplementedError and provides a reasonable default
-            return self.consensus_update(strategy="average")
+            # Weighted average consensus
+            # Includes self weight and neighbor weights
+            
+            numerator = 0.0
+            total_weight = 0.0
+            
+            # Process self
+            if isinstance(self.value, (int, float)) and not isinstance(self.value, bool):
+                numerator += float(self.value) * self.weight
+                total_weight += self.weight
+                
+            # Process neighbors
+            for neighbor in self.neighbors:
+                val = neighbor.value
+                if val is not None and isinstance(val, (int, float)) and not isinstance(val, bool):
+                    numerator += float(val) * neighbor.weight
+                    total_weight += neighbor.weight
+            
+            if total_weight > 0:
+                return numerator / total_weight
 
         return self.value
 
+    def consensus_update(self, strategy: str = "average") -> Any:
+        """
+        Perform a consensus update based on neighbors' values.
+        
+        Note: This updates the agent's state immediately. For synchronized updates,
+        manager using calculate_consensus_value() followed by mass update_value() is preferred.
+
+        Args:
+            strategy: Consensus strategy ("average", "majority", "weighted")
+
+        Returns:
+            Updated consensus value
+        """
+        new_value = self.calculate_consensus_value(strategy)
+        if new_value != self.value:
+            self.update_value(new_value)
+        return new_value
+    
     def execute(self, task: str, context: Optional[Dict] = None) -> Dict[str, Any]:
         """
         Execute a task using the agent's capabilities.

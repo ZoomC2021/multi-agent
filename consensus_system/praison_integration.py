@@ -84,8 +84,16 @@ class PraisonConsensusAgent(ConsensusAgent):
         if self.verbose:
             print(f"[{self.role}] Executing task: {task}")
             
+        # Build full prompt with context if available
+        full_prompt = task
+        if context:
+            context_str = "\n\nContext:\n"
+            for key, value in context.items():
+                context_str += f"- {key}: {value}\n"
+            full_prompt += context_str
+            
         # Execute the task with PraisonAI
-        response = self.praison_agent.start(task)
+        response = self.praison_agent.start(full_prompt)
         
         # Extract a quality score or metric from the response
         if isinstance(response, str):
@@ -123,11 +131,11 @@ def create_praison_agents_from_config(config: Dict[str, Any]) -> List[PraisonCon
     """
     agents = []
     
-    for agent_config in config['agents']:
+    for agent_config in config.get('agents', []):
         agent = PraisonConsensusAgent(
-            agent_id=agent_config['name'],
-            role=agent_config['role'],
-            instructions=agent_config['instructions'],
+            agent_id=agent_config.get('name', 'unknown'),
+            role=agent_config.get('role', 'Agent'),
+            instructions=agent_config.get('instructions', ''),
             initial_value=agent_config.get('initial_value', 0.0),
             llm=agent_config.get('llm', 'gpt-4'),
             verbose=True,

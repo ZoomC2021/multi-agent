@@ -92,11 +92,11 @@ def main():
     
     print("\nInterpretation:")
     if isinstance(consensus_value, (int, float)):
-        if consensus_score >= 8.0:
+        if consensus_value >= 8.0:
             print("  ✓ Code quality is EXCELLENT")
-        elif consensus_score >= 7.0:
+        elif consensus_value >= 7.0:
             print("  ✓ Code quality is GOOD")
-        elif consensus_score >= 6.0:
+        elif consensus_value >= 6.0:
             print("  ⚠ Code quality is ACCEPTABLE (improvements recommended)")
         else:
             print("  ✗ Code quality needs SIGNIFICANT improvement")

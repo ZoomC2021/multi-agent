@@ -50,7 +50,7 @@ def create_agents_from_config(config: dict) -> list:
             instructions=agent_config.get('instructions', ''),
             initial_value=agent_config.get('initial_value', 0.0),
             llm=agent_config.get('llm', 'gpt-4'),
-            verbose=True
+            verbose=agent_config.get('verbose', True)
         )
         agents.append(agent)
         
@@ -61,7 +61,8 @@ def run_consensus_system(
     config_path: Optional[str] = None,
     task: Optional[str] = None,
     output: Optional[str] = None,
-    headless: bool = True
+    headless: bool = True,
+    seed: Optional[int] = None
 ):
     """
     Run the consensus system with given configuration.
@@ -141,8 +142,11 @@ def run_consensus_system(
         print(f"{'='*60}")
         
         # Set some initial values
+        # Set some initial values
         import random
-        random.seed(42)  # For reproducible demos
+        if seed is not None:
+             random.seed(seed)
+             
         for agent in agents:
             agent.value = random.uniform(1.0, 10.0)
             
@@ -400,6 +404,11 @@ Examples:
         default='.',
         help='Working directory for external CLI agents'
     )
+    run_parser.add_argument(
+        '--seed', '-s',
+        type=int,
+        help='Random seed for reproducibility'
+    )
     
     # List command
     subparsers.add_parser('list', help='List available CLI integrations')
@@ -438,7 +447,8 @@ Examples:
                     config_path=args.config,
                     task=args.task,
                     output=args.output,
-                    headless=not args.interactive
+                    headless=not args.interactive,
+                    seed=args.seed
                 )
         elif args.command == 'init':
             init_config(args.output)

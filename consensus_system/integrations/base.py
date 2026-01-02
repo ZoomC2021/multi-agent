@@ -143,32 +143,53 @@ class ExternalCLIIntegration(ABC):
         Raises:
             asyncio.TimeoutError: If execution exceeds timeout
         """
+        # Validate arguments (Security fix)
+        for arg in args:
+            if not isinstance(arg, str):
+                raise ValueError(f"All CLI arguments must be strings, got: {type(arg)}")
+
         cmd = [self.CLI_NAME] + args
         
         if self.verbose:
             print(f"[{self.CLI_NAME}] Running: {' '.join(cmd)}")
         
-        def run_subprocess():
-            return subprocess.run(
-                cmd,
-                cwd=self.workspace,
-                capture_output=True,
-                text=True,
-                input=input_text,
-                timeout=self.timeout
-            )
-        
-        loop = asyncio.get_event_loop()
         try:
-            result = await asyncio.wait_for(
-                loop.run_in_executor(None, run_subprocess),
+            # Use create_subprocess_exec for better control (Zombie process fix)
+            process = await asyncio.create_subprocess_exec(
+                self.CLI_NAME,
+                *args,
+                stdin=asyncio.subprocess.PIPE if input_text else None,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=self.workspace,
+            )
+            
+            stdout_data, stderr_data = await asyncio.wait_for(
+                process.communicate(input=input_text.encode() if input_text else None),
                 timeout=self.timeout
             )
-            return result
+            
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=process.returncode,
+                stdout=stdout_data.decode(),
+                stderr=stderr_data.decode()
+            )
         except asyncio.TimeoutError:
+            try:
+                process.kill()
+                await process.wait()  # Ensure process is reaped
+            except Exception:
+                pass  # Process might be gone already
+            
             raise asyncio.TimeoutError(
                 f"{self.CLI_NAME} execution timed out after {self.timeout}s"
             )
+        except Exception as e:
+            # Handle creation errors (e.g. file not found)
+            if isinstance(e, FileNotFoundError):
+                 raise CLINotFoundError(f"{self.CLI_NAME} executable not found")
+            raise e
     
     def _parse_json_output(self, output: str) -> Dict[str, Any]:
         """
