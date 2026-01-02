@@ -59,15 +59,21 @@ class ConsensusManager:
 
         elif topology == "ring":
             # Agents are connected in a ring
-            for i, agent in enumerate(self.agents):
-                next_agent = self.agents[(i + 1) % len(self.agents)]
-                prev_agent = self.agents[(i - 1) % len(self.agents)]
-                # Add next neighbor
-                if next_agent != agent:
-                    agent.add_neighbor(next_agent)
-                # Add previous neighbor (only if different from next to avoid duplicate in 2-agent case)
-                if prev_agent != agent and prev_agent != next_agent:
-                    agent.add_neighbor(prev_agent)
+            num_agents = len(self.agents)
+            if num_agents < 2:
+                # No neighbors for 0 or 1 agent
+                pass
+            else:
+                for i, agent in enumerate(self.agents):
+                    next_agent = self.agents[(i + 1) % num_agents]
+                    # Python modulo handles negative numbers correctly: -1 % N = N-1
+                    prev_agent = self.agents[(i - 1) % num_agents]
+                    
+                    # Add next and previous neighbors
+                    if next_agent != agent:
+                        agent.add_neighbor(next_agent)
+                    if prev_agent != agent and prev_agent != next_agent:
+                        agent.add_neighbor(prev_agent)
 
         elif topology == "chain":
             # Agents are connected in a chain

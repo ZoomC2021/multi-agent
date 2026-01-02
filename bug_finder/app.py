@@ -104,14 +104,20 @@ if run_button:
                     # Run the async function
                     # We need a new event loop policy for streamlit if it doesn't handle it well, 
                     # but typically asyncio.run works if no other loop is running.
-                    result = asyncio.run(
-                        find_bugs_with_consensus(
-                            target_path=str(target),
-                            worker_configs=selected_configs,
-                            verbose=True,
-                            specific_files=specific_files
+                    import concurrent.futures
+
+                    # Run the async function in a separate thread to avoid event loop conflicts with Streamlit
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(
+                            asyncio.run,
+                            find_bugs_with_consensus(
+                                target_path=str(target),
+                                worker_configs=selected_configs,
+                                verbose=True,
+                                specific_files=specific_files,
+                            ),
                         )
-                    )
+                    result = future.result()
                     
                     # Save the result to a file so we can reload it
                     output_file = Path("bug_report.json")
