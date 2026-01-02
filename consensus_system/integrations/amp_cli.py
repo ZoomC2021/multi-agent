@@ -36,6 +36,7 @@ class AmpCLIIntegration(ExternalCLIIntegration):
         mode: str = "smart",
         use_sonnet: bool = False,
         no_ide: bool = True,
+        model: Optional[str] = None,
     ):
         """
         Initialize Amp CLI integration.
@@ -49,6 +50,7 @@ class AmpCLIIntegration(ExternalCLIIntegration):
             mode: Amp agent mode (free, rush, smart)
             use_sonnet: Use Claude Sonnet 4.5
             no_ide: Disable IDE integration (recommended for CLI use)
+            model: Model parameter (accepted for compatibility but not used)
         """
         self.force = force
         self.mode = mode
