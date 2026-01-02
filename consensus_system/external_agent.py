@@ -10,8 +10,6 @@ from typing import Any, Dict, List, Optional
 from consensus_system.agent import ConsensusAgent
 from consensus_system.integrations import (
     ExternalCLIIntegration,
-    CLINotFoundError,
-    APIKeyMissingError,
     get_integration_class,
     get_available_integrations,
 )

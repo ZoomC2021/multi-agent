@@ -27,9 +27,10 @@ try:
 except ImportError:
     pass
 
-# PraisonAI requires OPENAI_API_KEY even if using other models
-if not os.getenv("OPENAI_API_KEY"):
-    os.environ["OPENAI_API_KEY"] = "not-needed"
+# PraisonAI/LiteLLM might fall back to OpenAI checks if model string isn't perfect.
+# Set a dummy key that passes "Required" check but fails auth if actually used.
+# if not os.getenv("OPENAI_API_KEY"):
+#    os.environ["OPENAI_API_KEY"] = "sk-proj-dummy-key-for-litellm-bypass"
 
 # Map GEMINI_API_KEY to GOOGLE_API_KEY for compatibility with some libraries
 if os.getenv("GEMINI_API_KEY") and not os.getenv("GOOGLE_API_KEY"):
@@ -42,7 +43,6 @@ from consensus_system import (
     ConsensusManager,
     ExternalCLIConsensusAgent,
     PraisonConsensusAgent,
-    create_external_cli_agents,
     get_available_integrations,
 )
 
@@ -175,7 +175,12 @@ async def find_bugs_with_consensus(
             "mode": "cli",
         },
         {"type": "codex", "model": "gpt-5.2-codex", "role": "CodexWorker4", "mode": "cli"},
-        {"type": "gemini", "model": "gemini-3-flash", "role": "GeminiWorker5", "mode": "cli"},
+        {
+            "type": "gemini",
+            "model": "gemini-3-flash-preview",
+            "role": "GeminiWorker5",
+            "mode": "cli",
+        },
     ]
 
     # Orchestrator - runs after workers to synthesize results
@@ -311,47 +316,26 @@ Please synthesize these findings according to your instructions.
     return result
 
 
-def print_results(result: dict):
-    """Print formatted bug finding results."""
+def print_results(result: dict, log_path: Path, json_path: Path, md_path: Path):
+    """Print formatted concise bug finding results."""
     print("\n" + "=" * 60)
     print("BUG FINDING RESULTS")
     print("=" * 60)
 
-    # Print each worker's findings
-    print("\n--- WORKER FINDINGS ---")
-    for agent_result in result.get("worker_results", []):
-        role = agent_result.get("role", "Unknown")
-        cli = agent_result.get("cli", "unknown")
-        success = agent_result.get("success", True)
-        response = agent_result.get("response", "")
+    workers = result.get("worker_results", [])
+    total_workers = len(workers)
+    successful_workers = sum(1 for w in workers if w.get("success", True))
+    
+    consensus = result.get("worker_consensus", {})
+    converged = "Converged" if consensus.get("converged", False) else "Not Converged"
+    iterations = consensus.get("iterations", 0)
 
-        print(f"\n### {role} ({cli})")
-        if success:
-            # Print first 500 chars of response for workers
-            preview = response[:500] if len(response) > 500 else response
-            print(preview)
-            if len(response) > 500:
-                print("... [truncated for brevity]")
-        else:
-            print(f"FAILED: {agent_result.get('error', 'Unknown error')}")
-
-    # Print worker consensus
-    worker_consensus = result.get("worker_consensus", {})
-    print(f"\n{'=' * 60}")
-    print("WORKER CONSENSUS")
-    print(f"{'=' * 60}")
-    print(f"Converged: {worker_consensus.get('converged', False)}")
-    print(f"Iterations: {worker_consensus.get('iterations', 0)}")
-
-    # Print orchestrator's final synthesized report
-    print(f"\n{'=' * 60}")
-    print("FINAL SYNTHESIZED REPORT (from Lead Coordinator)")
-    print(f"{'=' * 60}")
-    final_report = result.get("final_report", "")
-    if final_report:
-        print(final_report)
-    else:
-        print("[No final report available]")
+    print(f"Worker Agents: {successful_workers}/{total_workers} executed successfully")
+    print(f"Consensus: {converged} (Iterations: {iterations})")
+    print()
+    print(f"[SUCCESS] Full report saved to: {md_path.absolute()}")
+    print(f"[DATA] Structured data saved to: {json_path.absolute()}")
+    print(f"[LOG] Execution log: {log_path.absolute()}")
 
 
 def main():
@@ -379,7 +363,32 @@ def main():
         result = asyncio.run(
             find_bugs_with_consensus(target_path=target_path, cli_types=cli_types, verbose=True)
         )
-        print_results(result)
+
+        # Save structured results for the viewer
+        import json
+
+        json_file = Path("bug_report.json")
+        try:
+            with open(json_file, "w") as f:
+                json.dump(result, f, indent=2, default=str)
+        except Exception as e:
+            print(f"Warning: Could not save JSON report: {e}")
+
+        # Save Markdown report
+        md_file = Path("bug_report.md")
+        try:
+            with open(md_file, "w") as f:
+                final_report = result.get("final_report", "")
+                if not final_report:
+                    final_report = "_No final report generated._"
+                f.write(final_report)
+        except Exception as e:
+            print(f"Warning: Could not save Markdown report: {e}")
+
+        # We assume the log file is at the default location since it's hardcoded in find_bugs
+        log_file = Path("bug_finder_execution.log")
+
+        print_results(result, log_file, json_file, md_file)
         return 0
 
     except Exception as e:

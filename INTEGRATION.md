@@ -13,9 +13,13 @@ The multi-agent consensus system supports two modes:
 
 ### 1. Install PraisonAI
 
-The system will automatically detect if PraisonAI is installed:
+The system will automatically detect if PraisonAI is installed. If you used `make install`, all dependencies including development ones are installed. To ensure PraisonAI is available:
 
 ```bash
+# Using Makefile
+make venv
+
+# Or manual installation
 pip install praisonaiagents
 ```
 
@@ -198,20 +202,14 @@ consensus:
 ```bash
 # production_setup.sh
 
-# Install dependencies
-pip install praisonaiagents pyyaml
-
-# Install consensus system
-pip install -e .
+# Install using Makefile
+make install
 
 # Set API keys (use secrets management in production)
 export OPENAI_API_KEY="${OPENAI_SECRET}"
 
 # Run consensus review
-consensus-cli run \
-  --config production_agents.yaml \
-  --task "Security audit of payment processing module" \
-  --output audit_results.json
+make run ARGS='run --config production_agents.yaml --task "Security audit of payment processing module" --output audit_results.json'
 
 # Check exit code
 if [ $? -eq 0 ]; then

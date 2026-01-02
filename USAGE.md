@@ -14,26 +14,36 @@ Practical examples and use cases for the PraisonAI Multi-Agent Iterative Consens
 
 ### Install
 
+The recommended way to install and set up the project is using the provided `Makefile`:
+
 ```bash
 # Clone the repository
 git clone https://github.com/ZoomC2021/multi-agent.git
 cd multi-agent
 
-# Install
-pip install -e .
+# Set up virtual environment and install dependencies
+make install
+```
+
+After installation, you can run commands using `make run` or by activating the virtual environment:
+```bash
+source venv/bin/activate
+consensus-cli --help
 ```
 
 ### Run Your First Consensus
 
+Using the `Makefile`:
+
 ```bash
 # Initialize a configuration file
-consensus-cli init --output my_agents.yaml
+make run ARGS="init --output my_agents.yaml"
 
 # Run with default agents
-consensus-cli run
+make run
 
 # Run a collaborative task
-consensus-cli run --task "Analyze code quality of authentication module"
+make run ARGS='run --task "Analyze code quality of authentication module"'
 ```
 
 ## CLI Usage

@@ -21,29 +21,39 @@ This system implements an iterative consensus mechanism where multiple AI agents
 ### Prerequisites
 
 - Python 3.8 or higher
-- pip package manager
+- `make` (optional, but recommended)
 
-### Install from source
+### Quick Install (Recommended)
+
+The easiest way to set up the project is using the provided `Makefile`, which automatically creates a virtual environment and installs all dependencies:
 
 ```bash
 # Clone the repository
 git clone https://github.com/ZoomC2021/multi-agent.git
 cd multi-agent
 
-# Install dependencies
-pip install -r requirements.txt
-
-# Install the package
-pip install -e .
+# Set up virtual environment and install dependencies
+make install
 ```
 
-### Install PraisonAI (optional, for full functionality)
+After installation, you can run commands using `make run` or by activating the virtual environment:
+```bash
+source venv/bin/activate
+consensus-cli --help
+```
+
+### Manual Install
+
+If you don't have `make`, you can set up the project manually:
 
 ```bash
-pip install praisonaiagents
-```
+# Create and activate virtual environment
+python3 -m venv venv
+source venv/bin/activate
 
-**Note**: The system works in simulation mode without PraisonAI installed, but for actual LLM-based execution, PraisonAI is required.
+# Install dependencies and the package in editable mode
+pip install -e ".[dev]"
+```
 
 ## Quick Start
 
@@ -317,26 +327,37 @@ agents.append(custom_agent)
 
 ## Development
 
+### Using the Makefile
+
+The project includes a `Makefile` to simplify common development tasks:
+
+```bash
+make venv      # Create virtual environment and install dependencies
+make install   # Alias for venv
+make run       # Run the consensus-cli
+make test      # Run tests using pytest
+make lint      # Check code style with ruff and black
+make format    # Format code with ruff and black
+make clean     # Remove virtual environment and cache files
+make help      # Show available targets
+```
+
 ### Running Tests
 
 ```bash
-# Install dev dependencies
-pip install -e .[dev]
-
-# Run tests
-pytest
+make test
 ```
 
 ### Code Style
 
-The project uses Black for formatting and Ruff for linting:
+The project uses Black for formatting and Ruff for linting. You can use the `Makefile` to run them:
 
 ```bash
-# Format code
-black consensus_system/
+# Check code style
+make lint
 
-# Lint code
-ruff check consensus_system/
+# Automatically format code
+make format
 ```
 
 ## Contributing

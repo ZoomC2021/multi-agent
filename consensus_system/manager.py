@@ -256,7 +256,7 @@ class ConsensusManager:
         }
 
         if self.verbose:
-            print(f"\nConsensus completed!")
+            print("\nConsensus completed!")
             print(f"  Converged: {converged}")
             print(f"  Iterations: {self.iteration_count}")
             print(f"  Consensus value: {consensus_value}")
@@ -278,7 +278,7 @@ class ConsensusManager:
             Collaborative task results with consensus
         """
         if self.verbose:
-            print(f"\n=== Collaborative Task ===")
+            print("\n=== Collaborative Task ===")
             print(f"Task: {task}")
 
         # Each agent executes the task in parallel

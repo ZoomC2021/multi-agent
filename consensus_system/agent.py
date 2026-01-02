@@ -5,7 +5,6 @@ Implements individual agents with consensus capabilities for the multi-agent sys
 """
 
 from typing import Dict, List, Any, Optional, cast, Union
-import json
 
 
 class ConsensusAgent:
