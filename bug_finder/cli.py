@@ -104,7 +104,7 @@ def print_results(result: dict, log_file: Path, json_file: Path, md_file: Path):
     print("BUG FINDER RESULTS SUMMARY")
     print("=" * 60)
 
-    print("=" * 60)
+
 
     # Note: result keys might distinguish between 'consensus' (final) and 'worker_consensus'
     # 'find_bugs_with_consensus' returns 'worker_consensus' for the worker phase.
@@ -200,7 +200,8 @@ def get_git_changed_files(target_path: Path) -> list:
             try:
                 full_path = (target_path / f).resolve()
                 # Security check: Ensure file is inside the target directory (prevent path traversal)
-                if target_path_abs in full_path.parents or full_path == target_path_abs:
+                # Use is_relative_to (Python 3.9+)
+                if full_path.is_relative_to(target_path_abs):
                     if full_path.is_file():
                         valid_files.append(str(full_path))
             except Exception:

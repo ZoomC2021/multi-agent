@@ -149,29 +149,25 @@ elif selected_file_path:
     except Exception as e:
         st.error(f"Error loading {selected_file_path}: {e}")
 else:
-    st.info(
-        "No report file found or selected. Please run the bug finder script first to generate a 'bug_report.json'."
-    )
-    st.code("python examples/bug_finder_example.py <path_to_code>")
-    st.stop()
-    
     # Fallback to try loading the just generated report if run just finished
     if Path("bug_report.json").exists():
         try:
             with open("bug_report.json", "r") as f:
                 data = json.load(f)
             # Update selection to point to this new file if possible, or just use data
-        except:
+        except (json.JSONDecodeError, OSError) as e:
+            # Silent fail on auto-load is okay, but maybe log it?
             pass
             
     if not data:
-         # If still no data
         st.info(
-            "No report file found or selected. Use the sidebar to run a new analysis."
+            "No report file found or selected. Please run the bug finder script first to generate a 'bug_report.json'."
         )
+        st.code("python examples/bug_finder_example.py <path_to_code>")
         st.stop()
-
+    
 if not data:
+    st.info("No report file found or selected. Use the sidebar to run a new analysis.")
     st.stop()
 
 # Display Task Info
