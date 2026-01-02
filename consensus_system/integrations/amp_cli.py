@@ -4,9 +4,12 @@ Amp CLI Integration.
 Wraps the `amp` CLI for use in the consensus system.
 """
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from .base import ExternalCLIIntegration
+
+logger = logging.getLogger(__name__)
 
 
 class AmpCLIIntegration(ExternalCLIIntegration):
@@ -16,6 +19,12 @@ class AmpCLIIntegration(ExternalCLIIntegration):
     Requires:
     - `amp` CLI installed
     - AMP_API_KEY environment variable set (or logged in session)
+    - Amp credits for execute mode (free mode only works interactively)
+
+    Note:
+        Amp's 'free' mode does not support execute mode (-x). This integration
+        uses execute mode, so you need credits. Use `use_sonnet=True` for
+        lower token costs (Claude Sonnet vs Opus).
 
     Example:
         amp = AmpCLIIntegration(workspace="/my/project")
@@ -33,7 +42,7 @@ class AmpCLIIntegration(ExternalCLIIntegration):
         timeout: int = 300,
         verbose: bool = False,
         force: bool = False,
-        mode: str = "free",
+        mode: Optional[str] = None,
         use_sonnet: bool = False,
         no_ide: bool = True,
         model: Optional[str] = None,
@@ -47,8 +56,9 @@ class AmpCLIIntegration(ExternalCLIIntegration):
             timeout: Execution timeout in seconds
             verbose: Enable verbose output
             force: Force execution without confirmations
-            mode: Amp agent mode (free, rush, smart)
-            use_sonnet: Use Claude Sonnet 4.5
+            mode: Amp agent mode (rush, smart). Note: 'free' mode does NOT
+                  work with execute mode. Default None lets Amp decide.
+            use_sonnet: Use Claude Sonnet 4.5 (recommended for lower costs)
             no_ide: Disable IDE integration (recommended for CLI use)
             model: Model parameter (accepted for compatibility but not used)
         """
