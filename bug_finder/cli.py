@@ -200,10 +200,14 @@ def get_git_changed_files(target_path: Path) -> list:
             try:
                 full_path = (target_path / f).resolve()
                 # Security check: Ensure file is inside the target directory (prevent path traversal)
-                # Use is_relative_to (Python 3.9+)
-                if full_path.is_relative_to(target_path_abs):
-                    if full_path.is_file():
-                        valid_files.append(str(full_path))
+                # For Python 3.8 compatibility, use relative_to which raises ValueError
+                try:
+                    full_path.relative_to(target_path_abs)
+                except ValueError:
+                    continue
+                    
+                if full_path.is_file():
+                    valid_files.append(str(full_path))
             except Exception:
                 pass
 
