@@ -40,12 +40,12 @@ format: venv
 
 .PHONY: find-bugs
 find-bugs: venv
-	@$(PYTHON) examples/bug_finder_example.py $(or $(TARGET),.)
+	@$(PYTHON) -m bug_finder.cli $(or $(TARGET),.) $(if $(DIFF),--diff,) $(ARGS)
 
 .PHONY: bug-viewer
 bug-viewer: venv
 	@$(VENV)/bin/pip install streamlit
-	@$(VENV)/bin/streamlit run examples/bug_finder_viewer.py
+	@$(PYTHON) -m bug_finder.viewer
 
 .PHONY: clean
 clean:
@@ -67,7 +67,7 @@ help:
 	@echo "  test        Run tests using pytest"
 	@echo "  lint        Check code style with ruff and black"
 	@echo "  format      Format code with ruff and black"
-	@echo "  find-bugs   Run the bug finder example (use TARGET=\"path/to/code\")"
+	@echo "  find-bugs   Run the bug finder (use TARGET=\"path\" or DIFF=1)"
 	@echo "  bug-viewer  Run the streamlit bug report viewer"
 	@echo "  clean       Remove virtual environment and cache files"
 	@echo "  help        Show this help message"

@@ -39,22 +39,46 @@ def create_agents_from_config(config: dict) -> list:
     Returns:
         List of ConsensusAgent instances
     """
+    from consensus_system.llm_agent import LiteLLMAgent
+    
     agents = []
-
+    
     # Use config.get() to handle missing agents key gracefully
     agent_configs = config.get("agents", [])
-
+    
     for agent_config in agent_configs:
-        agent = ConsensusAgent(
-            agent_id=agent_config.get("name", "unknown"),
-            role=agent_config.get("role", "Agent"),
-            instructions=agent_config.get("instructions", ""),
-            initial_value=agent_config.get("initial_value", 0.0),
-            llm=agent_config.get("llm", "gpt-4"),
-            verbose=agent_config.get("verbose", True),
-        )
-        agents.append(agent)
+        agent_type = agent_config.get("type", "llm")
+        
+        common_args = {
+            "agent_id": agent_config.get("name", "unknown"),
+            "role": agent_config.get("role", "Agent"),
+            "instructions": agent_config.get("instructions", ""),
+            "initial_value": agent_config.get("initial_value", 0.0),
+            "verbose": agent_config.get("verbose", True),
+        }
 
+        if agent_type == "external_cli":
+            agent = ExternalCLIConsensusAgent(
+                **common_args,
+                cli_type=agent_config.get("cli_type", "claude"),
+                workspace=agent_config.get("workspace", "."),
+                # Pass any extra options meant for the CLI
+                **agent_config.get("cli_options", {})
+            )
+        elif agent_type == "llm":
+            agent = LiteLLMAgent(
+                **common_args,
+                llm=agent_config.get("llm", "gpt-4"),
+            )
+        else:
+            # Fallback to base agent for unknown types
+            agent = ConsensusAgent(
+                **common_args,
+                llm=agent_config.get("llm", "gpt-4"),
+            )
+            
+        agents.append(agent)
+    
     return agents
 
 
@@ -142,14 +166,13 @@ def run_consensus_system(
         print(f"{'=' * 60}")
 
         # Set some initial values
-        # Set some initial values
         import random
 
         if seed is not None:
             random.seed(seed)
 
         for agent in agents:
-            agent.value = random.uniform(1.0, 10.0)
+            agent.value = random.uniform(0.0, 10.0)
 
         print("\nInitial values:")
         for agent in agents:

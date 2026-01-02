@@ -14,8 +14,10 @@ Requirements:
     - Corresponding API keys set
 """
 
+import argparse
 import asyncio
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -29,10 +31,10 @@ except ImportError:
 
 # Map GEMINI_API_KEY to GOOGLE_API_KEY for LiteLLM compatibility
 if os.getenv("GEMINI_API_KEY") and not os.getenv("GOOGLE_API_KEY"):
+    # Avoid modifying global os.environ if possible, but LiteLLM reads from env.
+    # We will prefer to pass api_key explicitly to agents if the library supports it.
+    # For now, we only set it if strictly necessary and try to scope it.
     os.environ["GOOGLE_API_KEY"] = os.getenv("GEMINI_API_KEY")
-
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from consensus_system import (
     ConsensusManager,
@@ -40,6 +42,34 @@ from consensus_system import (
     LiteLLMAgent,
     get_available_integrations,
 )
+
+DEFAULT_WORKER_CONFIGS = [
+    {
+        "type": "opencode",
+        "model": "opencode/grok-code",
+        "role": "OpenCodeWorker1",
+        "mode": "cli",
+    },
+    {
+        "type": "opencode",
+        "model": "opencode/glm-4.7-free",
+        "role": "OpenCodeWorker2",
+        "mode": "cli",
+    },
+    {
+        "type": "opencode",
+        "model": "opencode/minimax-m2.1-free",
+        "role": "OpenCodeWorker3",
+        "mode": "cli",
+    },
+    {"type": "codex", "model": "gpt-5.2-codex", "role": "CodexWorker4", "mode": "cli"},
+    {
+        "type": "gemini",
+        "model": "gemini-3-flash-preview",
+        "role": "GeminiWorker5",
+        "mode": "cli",
+    },
+]
 
 
 def log_event(message: str, log_file: Path):
@@ -68,8 +98,130 @@ def _format_worker_results(worker_results: dict) -> str:
     return "\n\n---\n\n".join(formatted)
 
 
+def print_results(result: dict, log_file: Path, json_file: Path, md_file: Path):
+    """Print a summary of the bug finding results."""
+    print("\n" + "=" * 60)
+    print("BUG FINDER RESULTS SUMMARY")
+    print("=" * 60)
+
+    print("=" * 60)
+
+    # Note: result keys might distinguish between 'consensus' (final) and 'worker_consensus'
+    # 'find_bugs_with_consensus' returns 'worker_consensus' for the worker phase.
+    consensus_data = result.get("worker_consensus", result.get("consensus", {}))
+    converged = consensus_data.get("converged", False)
+    iterations = consensus_data.get("iterations", 0)
+    final_decision = result.get("final_decision", "N/A")
+
+    print(f"Consensus Achieved: {converged}")
+    print(f"Iterations: {iterations}")
+    print(f"Final Decision: {final_decision}")
+
+    agent_results = result.get("agent_results", [])
+    print(f"\nAgent Results: {len(agent_results)} agents")
+
+    for agent_result in agent_results:
+        role = agent_result.get("role", "Unknown")
+        success = agent_result.get("success", False)
+        status = "SUCCESS" if success else "FAILED"
+        print(f"  - {role}: {status}")
+
+    print("\nOutput Files:")
+    print(f"  - Log: {log_file}")
+    print(f"  - JSON: {json_file}")
+    print(f"  - Markdown: {md_file}")
+    print("=" * 60)
+
+
+def get_git_changed_files(target_path: Path) -> list:
+    """Get list of changed files (staged and unstaged) relative to HEAD."""
+    try:
+        # Check if it's a git repo
+        subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=target_path,
+            check=True,
+            capture_output=True,
+        )
+
+        # Get changed files (staged + unstaged + untracked)
+        # Get changed files (staged + unstaged + untracked)
+        # 1. Staged and unstaged modifications
+        # Handle "unborn HEAD" (new repo with no commits)
+        try:
+            subprocess.run(
+                ["git", "rev-parse", "--verify", "HEAD"], 
+                cwd=target_path, 
+                check=True, 
+                capture_output=True
+            )
+            base_ref = "HEAD"
+        except subprocess.CalledProcessError:
+            # No HEAD (new repo), invoke diff against empty tree or just use cached
+            # For simplicity, we'll rely on ls-files for everything in this case or just --cached
+            base_ref = "--cached"  # This compares index to working tree? No.
+            # If no HEAD, everything added is "new". 
+            # We will use stricter diff if HEAD exists.
+            base_ref = None
+
+        if base_ref:
+            cmd_diff = ["git", "diff", base_ref, "--name-only", "--relative"]
+        else:
+            # No HEAD, just check cached/staged files
+            cmd_diff = ["git", "diff", "--cached", "--name-only", "--relative"]
+
+        # 2. Untracked files
+        cmd_untracked = ["git", "ls-files", "--others", "--exclude-standard"]
+
+        changed_files = []
+
+        # Run diff
+        result_diff = subprocess.run(
+            cmd_diff, cwd=target_path, capture_output=True, text=True, check=True
+        )
+        if result_diff.stdout.strip():
+            changed_files.extend(result_diff.stdout.strip().split("\n"))
+
+        # Run untracked
+        result_untracked = subprocess.run(
+            cmd_untracked, cwd=target_path, capture_output=True, text=True, check=True
+        )
+        if result_untracked.stdout.strip():
+            changed_files.extend(result_untracked.stdout.strip().split("\n"))
+
+        # Dedup and filter
+        unique_files = sorted(list(set(changed_files)))
+
+        # Resolve to absolute paths and verify they exist, ensuring they are within target_path
+        valid_files = []
+        target_path_abs = target_path.resolve()
+        
+        for f in unique_files:
+            try:
+                full_path = (target_path / f).resolve()
+                # Security check: Ensure file is inside the target directory (prevent path traversal)
+                if target_path_abs in full_path.parents or full_path == target_path_abs:
+                    if full_path.is_file():
+                        valid_files.append(str(full_path))
+            except Exception:
+                pass
+
+        return valid_files
+
+    except subprocess.CalledProcessError:
+        print(f"Warning: {target_path} is not a git repository or git error occurred.")
+        return []
+    except Exception as e:
+        print(f"Warning: Could not get git changes: {e}")
+        return []
+
+
 async def find_bugs_with_consensus(
-    target_path: str, cli_types: list = None, verbose: bool = True
+    target_path: str,
+    cli_types: list = None,
+    verbose: bool = True,
+    specific_files: list = None,
+    worker_configs: list = None,
 ) -> dict:
     """
     Find bugs using consensus from multiple AI coding agents.
@@ -78,6 +230,8 @@ async def find_bugs_with_consensus(
         target_path: Path to file or directory to analyze
         cli_types: List of CLI types to use (auto-detect if None)
         verbose: Enable verbose output
+        specific_files: Optional list of specific files to analyze (overrides scanning directory)
+        worker_configs: Optional list of worker configurations (overrides default/cli_types)
 
     Returns:
         Consensus result dictionary
@@ -90,17 +244,36 @@ async def find_bugs_with_consensus(
     log_event(f"STARTING BUG ANALYSIS ON: {target_path}", log_file)
 
     # Auto-detect available CLIs if not specified
-    if cli_types is None:
+    if cli_types is None and worker_configs is None:
         available = get_available_integrations()
         cli_types = [name for name, status in available.items() if status.get("ready")]
 
-    log_event(f"Available CLIs for workers: {', '.join(cli_types)}", log_file)
+    if worker_configs is None:
+        # Filter default configs based on available CLIs if specified
+        if cli_types:
+            worker_configs = [
+                cfg for cfg in DEFAULT_WORKER_CONFIGS if cfg["type"] in cli_types
+            ]
+        else:
+            worker_configs = DEFAULT_WORKER_CONFIGS
+
+    log_event(f"Available CLIs for workers: {', '.join(cli_types) if cli_types else 'Custom Config'}", log_file)
     print(f"Target: {target_path}")
+    if specific_files:
+        print(f"Analyzing {len(specific_files)} specific files based on criteria (e.g., git diff).")
     print()
 
     # Create task
     target = Path(target_path)
-    if target.is_file():
+    if specific_files:
+        task = (
+            f"Analyze {len(specific_files)} changed files in {target.name} for bugs and regressions"
+        )
+        files_str = "\n".join([f"- {Path(f).relative_to(target)}" for f in specific_files[:20]])
+        if len(specific_files) > 20:
+            files_str += f"\n... and {len(specific_files) - 20} more"
+        log_event(f"Targeting files:\n{files_str}", log_file)
+    elif target.is_file():
         task = f"Analyze {target.name} for bugs, issues, and potential regressions"
     else:
         task = f"Analyze the codebase in {target} for bugs, issues, and potential regressions"
@@ -148,34 +321,7 @@ async def find_bugs_with_consensus(
     [Brief summary of overall code health and top priorities]
     """
 
-    # Worker agents - execute in parallel to find bugs
-    worker_configs = [
-        {
-            "type": "opencode",
-            "model": "opencode/grok-code",
-            "role": "OpenCodeWorker1",
-            "mode": "cli",
-        },
-        {
-            "type": "opencode",
-            "model": "opencode/glm-4.7-free",
-            "role": "OpenCodeWorker2",
-            "mode": "cli",
-        },
-        {
-            "type": "opencode",
-            "model": "opencode/minimax-m2.1-free",
-            "role": "OpenCodeWorker3",
-            "mode": "cli",
-        },
-        {"type": "codex", "model": "gpt-5.2-codex", "role": "CodexWorker4", "mode": "cli"},
-        {
-            "type": "gemini",
-            "model": "gemini-3-flash-preview",
-            "role": "GeminiWorker5",
-            "mode": "cli",
-        },
-    ]
+
 
     # Orchestrator - runs after workers to synthesize results
     orchestrator_config = {
@@ -194,10 +340,11 @@ async def find_bugs_with_consensus(
             role=config["role"],
             instructions=worker_instructions,
             cli_type=config["type"],
-            model=config["model"],
+            # model=config["model"],  # Remove model here as it is passed via **cli_options if needed
             workspace=str(target.parent if target.is_file() else target),
             initial_value=0.0,
             verbose=verbose,
+            model=config["model"] # Pass model as kwarg which goes into cli_options
         )
         workers.append(agent)
         log_event(f"  - {agent.role} (model: {config['model']}, mode: cli)", log_file)
@@ -224,7 +371,27 @@ async def find_bugs_with_consensus(
 
     # Prepare context for agents
     context = {"target_path": str(target)}
-    if target.is_file():
+
+    if specific_files:
+        # Context includes listing of changed files
+        context["focus_files"] = specific_files
+        context["instruction_override"] = (
+            f"Focus your analysis ONLY on these files which have changed: {', '.join([str(Path(p).relative_to(target)) for p in specific_files])}"
+        )
+
+        # Read content of small number of files if possible
+        if len(specific_files) < 10:
+            file_contents = {}
+            for p in specific_files:
+                try:
+                    with open(p, "r") as f:
+                        file_contents[str(Path(p).relative_to(target))] = f.read()
+                except Exception:
+                    pass
+            if file_contents:
+                context["changed_files_content"] = file_contents
+
+    elif target.is_file():
         try:
             with open(target, "r") as f:
                 context["file_content"] = f.read()
@@ -282,6 +449,7 @@ Analyze the following bug reports from {len(worker_results["agent_results"])} co
 Synthesize their findings into a final consolidated report.
 
 Target: {target_path}
+Focus: {"Git Changed Files" if specific_files else "Full Codebase"}
 
 === WORKER AGENT FINDINGS ===
 
@@ -310,52 +478,50 @@ Please synthesize these findings according to your instructions.
     return result
 
 
-def print_results(result: dict, log_path: Path, json_path: Path, md_path: Path):
-    """Print formatted concise bug finding results."""
-    print("\n" + "=" * 60)
-    print("BUG FINDING RESULTS")
-    print("=" * 60)
-
-    workers = result.get("worker_results", [])
-    total_workers = len(workers)
-    successful_workers = sum(1 for w in workers if w.get("success", True))
-
-    consensus = result.get("worker_consensus", {})
-    converged = "Converged" if consensus.get("converged", False) else "Not Converged"
-    iterations = consensus.get("iterations", 0)
-
-    print(f"Worker Agents: {successful_workers}/{total_workers} executed successfully")
-    print(f"Consensus: {converged} (Iterations: {iterations})")
-    print()
-    print(f"[SUCCESS] Full report saved to: {md_path.absolute()}")
-    print(f"[DATA] Structured data saved to: {json_path.absolute()}")
-    print(f"[LOG] Execution log: {log_path.absolute()}")
-
-
 def main():
     """Main entry point."""
-    if len(sys.argv) < 2:
-        print("Usage: python bug_finder_example.py <path-to-analyze>")
-        print()
-        print("Example:")
-        print("  python bug_finder_example.py ../my_project/main.py")
-        print("  python bug_finder_example.py ../my_project/")
-        print()
-        print("Available CLIs:")
-        available = get_available_integrations()
-        for name, status in available.items():
-            ready = status.get("ready", False)
-            print(f"  {'✓' if ready else '✗'} {name}")
-        return 1
+    parser = argparse.ArgumentParser(description="Consensus-based Bug Finder")
+    parser.add_argument(
+        "path", nargs="?", default=os.getcwd(), help="Path to file or directory to analyze"
+    )
+    parser.add_argument(
+        "--diff",
+        action="store_true",
+        help="Analyze only git-changed files (staged+unstaged+untracked)",
+    )
+    parser.add_argument("--clis", nargs="+", help="Specific CLIs to use (e.g. claude gemini codex)")
 
-    target_path = sys.argv[1]
+    args = parser.parse_args()
 
-    # Optional: specify CLIs via additional args
-    cli_types = sys.argv[2:] if len(sys.argv) > 2 else None
+    # Handle available CLIs command which doesn't fit argparse well if we want it as a separate mode
+    # But simplicity: if no args, we default to cwd.
+
+    target_path = Path(args.path).absolute()
+
+    # Check if we should list available CLIs (maybe if a flag or special command, but let's stick to standard)
+
+    specific_files = None
+    if args.diff:
+        if not target_path.is_dir():
+            print("Error: --diff flag can only be used with a directory/repo path.")
+            return 1
+
+        print("Detecting git changes...")
+        specific_files = get_git_changed_files(target_path)
+        if not specific_files:
+            print("No git changes detected to analyze.")
+            return 0
+
+        print(f"Found {len(specific_files)} changed files.")
 
     try:
         result = asyncio.run(
-            find_bugs_with_consensus(target_path=target_path, cli_types=cli_types, verbose=True)
+            find_bugs_with_consensus(
+                target_path=str(target_path),
+                cli_types=args.clis,
+                verbose=True,
+                specific_files=specific_files,
+            )
         )
 
         # Save structured results for the viewer

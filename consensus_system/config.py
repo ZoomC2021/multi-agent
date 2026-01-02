@@ -120,7 +120,7 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
     consensus.setdefault("topology", "fully_connected")
 
     # Validate consensus values
-    if type(consensus["max_iterations"]) is not int or consensus["max_iterations"] <= 0:
+    if not isinstance(consensus["max_iterations"], int) or consensus["max_iterations"] <= 0:
         raise ValueError("'max_iterations' must be a positive integer")
 
     if (

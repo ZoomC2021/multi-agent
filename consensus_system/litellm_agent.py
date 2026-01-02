@@ -28,6 +28,7 @@ class LiteLLMAgent(ConsensusAgent):
         role: str,
         instructions: str,
         initial_value: Optional[Any] = None,
+        weight: float = 1.0,
         llm: str = "gpt-4",
         verbose: bool = False,
         tools: Optional[List] = None,
@@ -40,6 +41,7 @@ class LiteLLMAgent(ConsensusAgent):
             role: Role/name of the agent
             instructions: Instructions/prompt for the agent
             initial_value: Initial state/value for consensus
+            weight: Voting weight for weighted consensus (default: 1.0)
             llm: Language model to use (e.g., "gpt-4", "gemini/gemini-1.5-pro")
             verbose: Enable verbose logging
             tools: Optional list of tools for the agent
@@ -49,6 +51,7 @@ class LiteLLMAgent(ConsensusAgent):
             role=role,
             instructions=instructions,
             initial_value=initial_value,
+            weight=weight,
             llm=llm,
             verbose=verbose,
         )
@@ -56,9 +59,7 @@ class LiteLLMAgent(ConsensusAgent):
         self.tools = tools or []
 
         if not LITELLM_AVAILABLE:
-            raise RuntimeError(
-                "LiteLLM is not installed. Install with: pip install litellm"
-            )
+            raise RuntimeError("LiteLLM is not installed. Install with: pip install litellm")
 
         if self.verbose:
             print(f"[{self.role}] LiteLLM agent initialized with model: {self.llm}")
@@ -89,17 +90,21 @@ class LiteLLMAgent(ConsensusAgent):
         error = None
 
         try:
-            # Map GEMINI_API_KEY to GOOGLE_API_KEY for LiteLLM
-            if self.llm.startswith("gemini/"):
-                if os.getenv("GEMINI_API_KEY") and not os.getenv("GOOGLE_API_KEY"):
-                    os.environ["GOOGLE_API_KEY"] = os.getenv("GEMINI_API_KEY")
-
             messages = [
                 {"role": "system", "content": self.instructions},
                 {"role": "user", "content": full_prompt},
             ]
 
-            res = completion(model=self.llm, messages=messages)
+            # Pass API key for Gemini models if available, avoiding global env mutation
+            api_key = None
+            if self.llm.startswith("gemini/"):
+                api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+            if api_key:
+                res = completion(model=self.llm, messages=messages, api_key=api_key)
+            else:
+                res = completion(model=self.llm, messages=messages)
+
             response = res.choices[0].message.content
 
         except Exception as e:

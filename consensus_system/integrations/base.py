@@ -79,6 +79,9 @@ class ExternalCLIIntegration(ABC):
             APIKeyMissingError: If required API key is not set (only if REQUIRE_API_KEY=True)
         """
         # Check CLI availability
+        if not self.CLI_NAME:
+             raise ValueError("CLI_NAME must be defined in subclass")
+
         if not shutil.which(self.CLI_NAME):
             hint = f" Install: {self.INSTALL_HINT}" if self.INSTALL_HINT else ""
             raise CLINotFoundError(f"{self.CLI_NAME} CLI not found in PATH.{hint}")
@@ -153,6 +156,9 @@ class ExternalCLIIntegration(ABC):
         if self.verbose:
             print(f"[{self.CLI_NAME}] Running: {' '.join(cmd)}")
 
+        # Initialize process to None to avoid UnboundLocalError
+        process = None
+
         try:
             # Use create_subprocess_exec for better control (Zombie process fix)
             process = await asyncio.create_subprocess_exec(
@@ -169,16 +175,19 @@ class ExternalCLIIntegration(ABC):
                 timeout=self.timeout,
             )
 
+            # Decode with error handling for non-UTF-8 output
+            returncode = process.returncode if process.returncode is not None else -1
             return subprocess.CompletedProcess(
                 args=cmd,
-                returncode=process.returncode,
-                stdout=stdout_data.decode(),
-                stderr=stderr_data.decode(),
+                returncode=returncode,
+                stdout=stdout_data.decode(errors="replace"),
+                stderr=stderr_data.decode(errors="replace"),
             )
         except asyncio.TimeoutError:
             try:
-                process.kill()
-                await process.wait()  # Ensure process is reaped
+                if process:
+                    process.kill()
+                    await process.wait()  # Ensure process is reaped
             except Exception:
                 pass  # Process might be gone already
 
@@ -189,7 +198,7 @@ class ExternalCLIIntegration(ABC):
                 raise CLINotFoundError(f"{self.CLI_NAME} executable not found")
             raise e
 
-    def _parse_json_output(self, output: str) -> Dict[str, Any]:
+    def _parse_json_output(self, output: str) -> Any:
         """
         Parse JSON output from CLI.
 
@@ -197,7 +206,7 @@ class ExternalCLIIntegration(ABC):
             output: Raw CLI output
 
         Returns:
-            Parsed JSON as dictionary, or {"raw": output} if parsing fails
+            Parsed JSON as dictionary/list, or {"raw": output} if parsing fails
         """
         try:
             return json.loads(output)

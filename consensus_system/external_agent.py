@@ -43,6 +43,7 @@ class ExternalCLIConsensusAgent(ConsensusAgent):
         cli_type: str,
         workspace: str = ".",
         initial_value: Optional[Any] = None,
+        weight: float = 1.0,  # Added weight parameter
         verbose: bool = False,
         **cli_options,
     ):
@@ -69,6 +70,7 @@ class ExternalCLIConsensusAgent(ConsensusAgent):
             role=role,
             instructions=instructions,
             initial_value=initial_value,
+            weight=weight,
             llm=f"external:{cli_type}",  # Mark as external CLI
             verbose=verbose,
         )
@@ -81,9 +83,7 @@ class ExternalCLIConsensusAgent(ConsensusAgent):
         integration_class = get_integration_class(self.cli_type)
         if integration_class is None:
             available = list(get_available_integrations().keys())
-            raise ValueError(
-                f"Unsupported CLI type: {cli_type}. " f"Supported: {', '.join(available)}"
-            )
+            raise ValueError(f"Unsupported CLI type: {cli_type}. Supported: {', '.join(available)}")
 
         # Initialize integration - fails fast if CLI/key missing
         # Build kwargs specific to each CLI type
@@ -110,21 +110,23 @@ class ExternalCLIConsensusAgent(ConsensusAgent):
             Result dictionary with agent's response
         """
         try:
-            # Check if there is a running loop in the CURRENT thread
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
 
         if loop and loop.is_running():
-            # We're in an async context, create a new thread
-            import concurrent.futures
-
+            # If we are in an event loop, we must run this in a separate thread
+            # with its own event loop to avoid blocking the current one
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(asyncio.run, self.execute_async(task, context))
+                future = executor.submit(self._run_isolated_async, task, context)
                 return future.result()
         else:
-            # No running loop in this thread, safe to use asyncio.run
+            # If no event loop is running, we can just run it directly
             return asyncio.run(self.execute_async(task, context))
+
+    def _run_isolated_async(self, task: str, context: Optional[Dict]) -> Dict[str, Any]:
+        """Helper to run async execution in a dedicated thread/loop."""
+        return asyncio.run(self.execute_async(task, context))
 
     async def execute_async(self, task: str, context: Optional[Dict] = None) -> Dict[str, Any]:
         """
