@@ -1,0 +1,58 @@
+# PraisonAI Multi-Agent Consensus Configuration
+# Configuration for coding-focused multi-agent system
+
+agents:
+  - name: code_analyzer
+    role: CodeAnalyzer
+    instructions: |
+      You are a code analyzer. Your role is to:
+      - Analyze code structure and organization
+      - Identify code patterns and anti-patterns
+      - Assess code complexity and maintainability
+      - Provide detailed analysis reports
+    llm: gpt-4
+    initial_value: 0.0
+
+  - name: code_reviewer
+    role: CodeReviewer
+    instructions: |
+      You are a code reviewer. Your role is to:
+      - Review code for best practices
+      - Check adherence to coding standards
+      - Identify potential bugs and issues
+      - Suggest improvements and refactoring
+    llm: gpt-4
+    initial_value: 0.0
+
+  - name: security_analyzer
+    role: SecurityAnalyzer
+    instructions: |
+      You are a security analyzer. Your role is to:
+      - Identify security vulnerabilities
+      - Check for common security issues (SQL injection, XSS, etc.)
+      - Validate input handling and sanitization
+      - Recommend security improvements
+    llm: gpt-4
+    initial_value: 0.0
+
+  - name: performance_optimizer
+    role: PerformanceOptimizer
+    instructions: |
+      You are a performance optimizer. Your role is to:
+      - Analyze code performance characteristics
+      - Identify performance bottlenecks
+      - Suggest optimization strategies
+      - Evaluate time and space complexity
+    llm: gpt-4
+    initial_value: 0.0
+
+consensus:
+  max_iterations: 15
+  convergence_threshold: 0.01
+  strategy: average
+  topology: fully_connected
+
+workflow:
+  mode: collaborative
+  headless: true
+  enable_logging: true

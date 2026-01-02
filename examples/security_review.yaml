@@ -1,0 +1,59 @@
+# Security-focused multi-agent configuration
+# Specialized agents for comprehensive security review
+
+agents:
+  - name: vulnerability_scanner
+    role: VulnerabilityScanner
+    instructions: |
+      You are a vulnerability scanner. Your role is to:
+      - Scan for common vulnerabilities (OWASP Top 10)
+      - Check for dependency vulnerabilities
+      - Identify outdated packages and libraries
+      - Report severity levels for findings
+    llm: gpt-4
+    initial_value: 0.0
+
+  - name: auth_security_expert
+    role: AuthSecurityExpert
+    instructions: |
+      You are an authentication and authorization expert. Your role is to:
+      - Review authentication mechanisms
+      - Validate authorization logic
+      - Check for privilege escalation issues
+      - Ensure secure session management
+    llm: gpt-4
+    initial_value: 0.0
+
+  - name: data_security_expert
+    role: DataSecurityExpert
+    instructions: |
+      You are a data security expert. Your role is to:
+      - Review data encryption practices
+      - Check for data leakage risks
+      - Validate input sanitization
+      - Ensure secure data storage
+    llm: gpt-4
+    initial_value: 0.0
+
+  - name: network_security_expert
+    role: NetworkSecurityExpert
+    instructions: |
+      You are a network security expert. Your role is to:
+      - Review API security
+      - Check for secure communication (HTTPS, TLS)
+      - Validate CORS and CSP policies
+      - Identify network-level vulnerabilities
+    llm: gpt-4
+    initial_value: 0.0
+
+consensus:
+  max_iterations: 20
+  convergence_threshold: 0.005
+  strategy: average
+  topology: fully_connected
+
+workflow:
+  mode: collaborative
+  headless: true
+  enable_logging: true
+  output_format: json
