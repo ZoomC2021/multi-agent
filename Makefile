@@ -40,12 +40,22 @@ format: venv
 
 .PHONY: find-bugs
 find-bugs: venv
-	@$(PYTHON) -m bug_finder.cli $(or $(TARGET),.) $(if $(DIFF),--diff,) $(ARGS)
+	@$(PYTHON) -m bug_finder.cli $(if $(DIFF),--diff,) $(ARGS) $(or $(TARGET),.)
 
 .PHONY: bug-viewer
 bug-viewer: venv
 	@$(VENV)/bin/pip install streamlit
 	@$(PYTHON) -m bug_finder.viewer
+
+.PHONY: review-pr
+review-pr: venv
+	@if [ -z "$(PR)" ]; then \
+		echo "Usage: make review-pr PR=<number> [REPO=owner/repo] [ARGS=...]"; \
+		echo "Example: make review-pr PR=123"; \
+		echo "Example: make review-pr PR=456 REPO=facebook/react"; \
+		exit 1; \
+	fi
+	@$(PYTHON) -m bug_finder.cli --pr $(PR) $(if $(REPO),--repo $(REPO),) $(ARGS)
 
 .PHONY: clean
 clean:
@@ -68,6 +78,7 @@ help:
 	@echo "  lint        Check code style with ruff and black"
 	@echo "  format      Format code with ruff and black"
 	@echo "  find-bugs   Run the bug finder (use TARGET=\"path\" or DIFF=1)"
+	@echo "  review-pr   Review a GitHub PR (use PR=<number> REPO=owner/repo)"
 	@echo "  bug-viewer  Run the streamlit bug report viewer"
 	@echo "  clean       Remove virtual environment and cache files"
 	@echo "  help        Show this help message"

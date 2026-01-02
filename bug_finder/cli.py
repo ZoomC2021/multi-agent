@@ -20,6 +20,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 # Load environment variables from .env file
 try:
@@ -69,14 +70,65 @@ DEFAULT_WORKER_CONFIGS = [
         "role": "GeminiWorker5",
         "mode": "cli",
     },
-    {
-        "type": "amp",
-        "model": "amp-free",
-        "role": "AmpWorker6",
-        "mode": "cli",
-        "cli_mode": "free",
-    },
 ]
+
+# PR-specific worker instructions
+PR_WORKER_INSTRUCTIONS = """
+You are a code analysis expert reviewing a GitHub Pull Request.
+
+Your responsibilities:
+1. Analyze code changes in the PR diff
+2. Consider the PR description and motivation
+3. Review existing reviewer comments:
+   - Validate issues raised by reviewers
+   - Provide alternative perspectives when you disagree
+   - Identify issues reviewers may have missed
+4. Check for regressions in changed areas
+5. Evaluate PR changes against codebase patterns
+
+For each issue found, provide:
+1. File path and line number(s)
+2. Issue type (bug, security, performance, logic error, etc.)
+3. Severity (critical, high, medium, low)
+4. Description of the issue
+5. Whether existing reviewers mentioned this (agree/disagree/new finding)
+6. Recommended fix
+
+Be thorough but focus on real issues in the changed code.
+"""
+
+# PR-specific orchestrator instructions
+PR_ORCHESTRATOR_INSTRUCTIONS = """
+You are the lead coordinator reviewing a GitHub Pull Request with a team of code analysis agents.
+
+You will receive:
+1. Bug reports from multiple worker agents
+2. Existing reviewer comments from the PR
+
+Your responsibilities:
+1. **Compare AI findings with existing reviewers**: Note where AI and humans agree/disagree
+2. **Synthesize findings**: Merge overlapping issues from multiple agents
+3. **Resolve conflicts**: When agents or reviewers disagree, use your judgment
+4. **Filter false positives**: Flag issues with low confidence for review
+5. **Prioritize**: Order by severity and confidence
+
+Output your final report in this format:
+
+## Summary
+[Overall PR assessment: Approve / Request Changes / Needs Major Revision]
+
+## Issues AI and Reviewers Both Identified
+[Consensus findings - high confidence]
+
+## Issues AI Disagrees With Reviewers On
+[AI's alternative perspective with reasoning]
+
+## Issues Only AI Found (Reviewers Missed)
+[New findings not mentioned in existing reviews]
+
+## Recommendations
+[Specific actionable recommendations for the PR author]
+"""
 
 
 def log_event(message: str, log_file: Path):
@@ -122,7 +174,7 @@ def print_results(result: dict, log_file: Path, json_file: Path, md_file: Path):
     print(f"Iterations: {iterations}")
     print(f"Final Decision: {final_decision}")
 
-    agent_results = result.get("agent_results", [])
+    agent_results = result.get("worker_results", [])
     print(f"\nAgent Results: {len(agent_results)} agents")
 
     for agent_result in agent_results:
@@ -205,15 +257,21 @@ def get_git_changed_files(target_path: Path) -> list:
             try:
                 full_path = (target_path / f).resolve()
                 # Security check: Ensure file is inside the target directory (prevent path traversal)
-                # For Python 3.8 compatibility, use relative_to which raises ValueError
+                # Use os.path.commonpath for robust security check
+                import os
                 try:
-                    full_path.relative_to(target_path_abs)
+                    common = os.path.commonpath([str(full_path), str(target_path_abs)])
+                    if common != str(target_path_abs):
+                        # File is outside target directory
+                        continue
                 except ValueError:
+                    # Paths on different drives (Windows) or other path issues
                     continue
 
                 if full_path.is_file():
                     valid_files.append(str(full_path))
-            except Exception:
+            except (OSError, ValueError):
+                # Handle path resolution errors gracefully
                 pass
 
         return valid_files
@@ -232,6 +290,12 @@ async def find_bugs_with_consensus(
     verbose: bool = True,
     specific_files: list = None,
     worker_configs: list = None,
+    # PR review parameters
+    pr_number: Optional[int] = None,
+    repo: Optional[str] = None,
+    include_pr_comments: bool = True,
+    include_pr_reviews: bool = True,
+    checkout_pr_branch_flag: bool = True,
 ) -> dict:
     """
     Find bugs using consensus from multiple AI coding agents.
@@ -242,6 +306,11 @@ async def find_bugs_with_consensus(
         verbose: Enable verbose output
         specific_files: Optional list of specific files to analyze (overrides scanning directory)
         worker_configs: Optional list of worker configurations (overrides default/cli_types)
+        pr_number: GitHub PR number to review (optional)
+        repo: GitHub repository in owner/repo format (optional, infers from git remote)
+        include_pr_comments: Whether to fetch PR comments (default: True)
+        include_pr_reviews: Whether to fetch PR reviews (default: True)
+        checkout_pr_branch_flag: Whether to checkout PR branch locally (default: True)
 
     Returns:
         Consensus result dictionary
@@ -252,6 +321,137 @@ async def find_bugs_with_consensus(
         log_file.unlink()  # Start fresh
 
     log_event(f"STARTING BUG ANALYSIS ON: {target_path}", log_file)
+
+    # PR mode variables
+    pr_details = None
+    pr_diff = None
+    pr_reviews = []
+    pr_comments = []
+    review_mode = "local"  # Default mode
+
+    # Handle PR review mode
+    if pr_number is not None:
+        from bug_finder.github_pr import (
+            check_gh_cli,
+            fetch_pr_details,
+            fetch_pr_diff,
+            fetch_pr_reviews,
+            fetch_pr_comments,
+            checkout_pr_branch,
+            format_pr_context_for_agents,
+            get_pr_changed_file_paths,
+            infer_current_repo,
+            GHCLIError,
+            GHCLINotInstalled,
+            GHCLINotAuthenticated,
+            PRNotFound,
+            PRCheckoutFailed,
+        )
+
+        log_event(f"PR REVIEW MODE: PR #{pr_number}", log_file)
+        print(f"\n🔍 PR Review Mode: Analyzing PR #{pr_number}")
+
+        # Check gh CLI
+        gh_status = check_gh_cli()
+        if not gh_status.installed:
+            raise RuntimeError(f"gh CLI not installed: {gh_status.error}")
+        if not gh_status.authenticated:
+            raise RuntimeError(f"gh CLI not authenticated: {gh_status.error}")
+
+        # Infer repo if not specified
+        if not repo:
+            repo = infer_current_repo(target_path)
+            if repo:
+                print(f"  📦 Repository: {repo}")
+            else:
+                print("  ⚠️  Could not infer repository, using current directory")
+
+        # Fetch PR details
+        try:
+            print("  📥 Fetching PR details...")
+            pr_details = fetch_pr_details(pr_number, repo)
+            log_event(f"PR Title: {pr_details.get('title', 'Unknown')}", log_file)
+            print(f"  📝 Title: {pr_details.get('title', 'Unknown')}")
+        except PRNotFound:
+            raise RuntimeError(f"PR #{pr_number} not found in {repo or 'current repo'}")
+        except GHCLIError as e:
+            raise RuntimeError(f"Failed to fetch PR details: {e}")
+
+        # Fetch PR diff
+        try:
+            print("  📥 Fetching PR diff...")
+            pr_diff = fetch_pr_diff(pr_number, repo)
+            log_event(f"PR Diff size: {len(pr_diff)} chars", log_file)
+        except GHCLIError as e:
+            print(f"  ⚠️  Could not fetch PR diff: {e}")
+            pr_diff = ""
+
+        # Fetch PR reviews
+        if include_pr_reviews:
+            try:
+                print("  📥 Fetching PR reviews...")
+                pr_reviews = fetch_pr_reviews(pr_number, repo)
+                log_event(f"PR Reviews: {len(pr_reviews)}", log_file)
+                print(f"  💬 Found {len(pr_reviews)} reviews")
+            except GHCLIError as e:
+                print(f"  ⚠️  Could not fetch PR reviews: {e}")
+
+        # Fetch PR comments
+        if include_pr_comments:
+            try:
+                print("  📥 Fetching PR comments...")
+                pr_comments = fetch_pr_comments(pr_number, repo)
+                log_event(f"PR Comments: {len(pr_comments)}", log_file)
+                print(f"  💬 Found {len(pr_comments)} comments")
+            except GHCLIError as e:
+                print(f"  ⚠️  Could not fetch PR comments: {e}")
+
+        # Checkout PR branch if requested
+        pr_branch_checked_out = False
+        if checkout_pr_branch_flag:
+            try:
+                print("  🔀 Checking out PR branch...")
+                checkout_result = checkout_pr_branch(pr_number, repo, target_path)
+                if checkout_result["success"]:
+                    log_event(f"Checked out branch: {checkout_result['branch']}", log_file)
+                    print(f"  ✅ Checked out branch: {checkout_result['branch']}")
+                    pr_branch_checked_out = True
+            except PRCheckoutFailed as e:
+                print(f"  ⚠️  Could not checkout PR branch: {e}")
+                print("      Will use diff-only mode (file existence checks may be inaccurate)")
+
+        # Get changed files from PR if specific_files not already set
+        if not specific_files:
+            if pr_branch_checked_out:
+                # Branch is checked out, safe to verify file existence
+                try:
+                    specific_files = get_pr_changed_file_paths(pr_number, repo, target_path)
+                    print(f"  📁 Analyzing {len(specific_files)} changed files from PR")
+                except GHCLIError:
+                    # Fall back to parsing diff with existence check
+                    from bug_finder.github_pr import parse_pr_diff_for_files
+                    diff_files = parse_pr_diff_for_files(pr_diff)
+                    target = Path(target_path)
+                    specific_files = [
+                        str((target / f).resolve())
+                        for f in diff_files
+                        if (target / f).is_file()
+                    ]
+                    print(f"  📁 Analyzing {len(specific_files)} changed files from diff")
+            else:
+                # Branch NOT checked out - use diff-only mode without file existence checks
+                # This avoids the race condition of checking files on wrong branch
+                from bug_finder.github_pr import parse_pr_diff_for_files
+                diff_files = parse_pr_diff_for_files(pr_diff)
+                target = Path(target_path)
+                # Include all files from diff without existence check
+                specific_files = [str((target / f).resolve()) for f in diff_files]
+                print(f"  📁 Using diff-only mode: {len(specific_files)} files from PR diff")
+                if specific_files:
+                    print("      (Note: Some files may not exist locally since branch wasn't checked out)")
+
+        review_mode = "github_pr"
+        print()
 
     # Auto-detect available CLIs if not specified
     if cli_types is None and worker_configs is None:
@@ -276,7 +476,18 @@ async def find_bugs_with_consensus(
 
     # Create task
     target = Path(target_path)
-    if specific_files:
+    if review_mode == "github_pr" and pr_details:
+        # PR-specific task
+        pr_title = pr_details.get("title", "Unknown")
+        task = f"Review PR #{pr_number}: {pr_title}"
+        if specific_files:
+            files_str = "\n".join([f"- {Path(f).relative_to(target)}" for f in specific_files[:20]])
+            if len(specific_files) > 20:
+                files_str += f"\n... and {len(specific_files) - 20} more"
+        else:
+            files_str = "No changed files found in PR"
+        log_event(f"PR files:\n{files_str}", log_file)
+    elif specific_files:
         task = (
             f"Analyze {len(specific_files)} changed files in {target.name} for bugs and regressions"
         )
@@ -291,46 +502,51 @@ async def find_bugs_with_consensus(
 
     log_event(f"TASK: {task}", log_file)
 
-    # Worker instructions - find bugs
-    worker_instructions = """
-    You are a code analysis expert focused on finding bugs and issues.
-    
-    For each issue found, provide:
-    1. File path and line number(s)
-    2. Issue type (bug, security, performance, etc.)
-    3. Severity (critical, high, medium, low)
-    4. Description of the issue
-    5. Recommended fix
-    
-    Be thorough but focus on real issues, not style preferences.
-    Format each issue clearly so it can be easily parsed.
-    """
+    # Select instructions based on review mode
+    if review_mode == "github_pr":
+        worker_instructions = PR_WORKER_INSTRUCTIONS
+        orchestrator_instructions = PR_ORCHESTRATOR_INSTRUCTIONS
+    else:
+        # Default worker instructions - find bugs
+        worker_instructions = """
+        You are a code analysis expert focused on finding bugs and issues.
+        
+        For each issue found, provide:
+        1. File path and line number(s)
+        2. Issue type (bug, security, performance, etc.)
+        3. Severity (critical, high, medium, low)
+        4. Description of the issue
+        5. Recommended fix
+        
+        Be thorough but focus on real issues, not style preferences.
+        Format each issue clearly so it can be easily parsed.
+        """
 
-    # Orchestrator instructions - synthesize and coordinate
-    orchestrator_instructions = """
-    You are the lead coordinator for a team of code analysis agents.
-    
-    You will receive bug reports from multiple worker agents. Your responsibilities:
-    1. **Synthesize findings**: Merge overlapping issues reported by multiple agents
-    2. **Resolve conflicts**: When agents disagree on severity or classification, use your judgment
-    3. **Filter false positives**: If only one agent reports an issue with low confidence, flag it for review
-    4. **Prioritize**: Order the final report by severity and confidence (issues found by multiple agents = higher confidence)
-    5. **Produce final report**: Create a consolidated bug report in a structured format
-    
-    Output your final report in this format:
-    
-    ## High-Confidence Issues (Multiple agents agree)
-    [List issues where 2+ agents identified the same problem]
-    
-    ## Medium-Confidence Issues (Single agent, strong evidence)
-    [List issues reported by one agent but with clear evidence]
-    
-    ## Potential Issues (Needs further review)
-    [List issues that may be false positives or need human review]
-    
-    ## Summary
-    [Brief summary of overall code health and top priorities]
-    """
+        # Default orchestrator instructions - synthesize and coordinate
+        orchestrator_instructions = """
+        You are the lead coordinator for a team of code analysis agents.
+        
+        You will receive bug reports from multiple worker agents. Your responsibilities:
+        1. **Synthesize findings**: Merge overlapping issues reported by multiple agents
+        2. **Resolve conflicts**: When agents disagree on severity or classification, use your judgment
+        3. **Filter false positives**: If only one agent reports an issue with low confidence, flag it for review
+        4. **Prioritize**: Order the final report by severity and confidence (issues found by multiple agents = higher confidence)
+        5. **Produce final report**: Create a consolidated bug report in a structured format
+        
+        Output your final report in this format:
+        
+        ## High-Confidence Issues (Multiple agents agree)
+        [List issues where 2+ agents identified the same problem]
+        
+        ## Medium-Confidence Issues (Single agent, strong evidence)
+        [List issues reported by one agent but with clear evidence]
+        
+        ## Potential Issues (Needs further review)
+        [List issues that may be false positives or need human review]
+        
+        ## Summary
+        [Brief summary of overall code health and top priorities]
+        """
 
     # Orchestrator - runs after workers to synthesize results
     orchestrator_config = {
@@ -393,18 +609,18 @@ async def find_bugs_with_consensus(
             file_contents = {}
             for p in specific_files:
                 try:
-                    with open(p, "r") as f:
+                    with open(p, "r", encoding="utf-8") as f:
                         file_contents[str(Path(p).relative_to(target))] = f.read()
-                except Exception:
+                except (OSError, UnicodeDecodeError):
                     pass
             if file_contents:
                 context["changed_files_content"] = file_contents
 
     elif target.is_file():
         try:
-            with open(target, "r") as f:
+            with open(target, "r", encoding="utf-8") as f:
                 context["file_content"] = f.read()
-        except Exception as e:
+        except (OSError, UnicodeDecodeError) as e:
             context["error"] = f"Could not read file: {e}"
     else:
         # For directories, provide a file listing
@@ -419,6 +635,18 @@ async def find_bugs_with_consensus(
                 context["file_listing"] += f" (and {len(files) - 50} more)"
         except Exception as e:
             context["error"] = f"Could not list directory: {e}"
+
+    # Add PR context if in PR mode
+    if review_mode == "github_pr" and pr_details:
+        from bug_finder.github_pr import format_pr_context_for_agents, format_reviewer_comments_for_ai
+        
+        context["review_mode"] = "github_pr"
+        context["pr_number"] = pr_number
+        context["pr_title"] = pr_details.get("title", "")
+        context["pr_description"] = pr_details.get("body", "")
+        context["pr_author"] = pr_details.get("author", {}).get("login", "Unknown") if isinstance(pr_details.get("author"), dict) else str(pr_details.get("author", "Unknown"))
+        context["existing_reviewer_feedback"] = format_reviewer_comments_for_ai(pr_reviews, pr_comments)
+        context["pr_context"] = format_pr_context_for_agents(pr_details, pr_diff or "", pr_reviews, pr_comments)
 
     # ========================================
     # PHASE 1: Workers analyze code in parallel
@@ -453,7 +681,28 @@ async def find_bugs_with_consensus(
     # Format worker results for the orchestrator
     worker_findings = _format_worker_results(worker_results)
 
-    synthesis_task = f"""
+    # Build synthesis task based on review mode
+    if review_mode == "github_pr" and pr_details:
+        synthesis_task = f"""
+Review the following analysis from {len(worker_results["agent_results"])} AI code review agents for PR #{pr_number}.
+
+PR Title: {pr_details.get('title', 'Unknown')}
+PR Author: {context.get('pr_author', 'Unknown')}
+PR URL: {pr_details.get('url', 'N/A')}
+
+=== EXISTING REVIEWER FEEDBACK ===
+{context.get('existing_reviewer_feedback', 'No existing feedback')}
+
+=== AI AGENT FINDINGS ===
+
+{worker_findings}
+
+=== END OF AI FINDINGS ===
+
+Please synthesize these findings according to your instructions, comparing AI findings with existing reviewer feedback.
+"""
+    else:
+        synthesis_task = f"""
 Analyze the following bug reports from {len(worker_results["agent_results"])} code analysis agents.
 Synthesize their findings into a final consolidated report.
 
@@ -476,11 +725,20 @@ Please synthesize these findings according to your instructions.
     # Combine results
     result = {
         "task": task,
+        "review_mode": review_mode,
         "worker_results": worker_results.get("agent_results", []),
         "worker_consensus": worker_results.get("consensus", {}),
+        "final_decision": worker_results.get("final_decision", "N/A"),
         "orchestrator_result": orchestrator_result,
         "final_report": orchestrator_result.get("response", ""),
     }
+
+    # Add PR-specific data if in PR mode
+    if review_mode == "github_pr":
+        result["pr_details"] = pr_details
+        result["pr_reviews"] = pr_reviews
+        result["pr_comments"] = pr_comments
+        result["changed_files"] = specific_files or []
 
     print(f"\nAudit log written to: {log_file}")
 
@@ -499,6 +757,35 @@ def main():
         help="Analyze only git-changed files (staged+unstaged+untracked)",
     )
     parser.add_argument("--clis", nargs="+", help="Specific CLIs to use (e.g. claude gemini codex)")
+    
+    # PR review arguments
+    parser.add_argument(
+        "--pr",
+        type=int,
+        default=None,
+        help="GitHub PR number to review",
+    )
+    parser.add_argument(
+        "--repo",
+        type=str,
+        default=None,
+        help="GitHub repository (owner/repo). Inferred from git remote if not specified.",
+    )
+    parser.add_argument(
+        "--no-pr-comments",
+        action="store_true",
+        help="Don't fetch PR comments",
+    )
+    parser.add_argument(
+        "--no-pr-reviews",
+        action="store_true",
+        help="Don't fetch PR reviews",
+    )
+    parser.add_argument(
+        "--no-checkout-branch",
+        action="store_true",
+        help="Don't checkout PR branch locally",
+    )
 
     args = parser.parse_args()
 
@@ -510,7 +797,13 @@ def main():
     # Check if we should list available CLIs (maybe if a flag or special command, but let's stick to standard)
 
     specific_files = None
-    if args.diff:
+    
+    # PR mode takes precedence over diff mode
+    if args.pr:
+        # Validate that PR mode is not used with conflicting options
+        if args.diff:
+            print("Warning: --diff is ignored when --pr is specified (PR files will be used instead)")
+    elif args.diff:
         if not target_path.is_dir():
             print("Error: --diff flag can only be used with a directory/repo path.")
             return 1
@@ -530,6 +823,11 @@ def main():
                 cli_types=args.clis,
                 verbose=True,
                 specific_files=specific_files,
+                pr_number=args.pr,
+                repo=args.repo,
+                include_pr_comments=not args.no_pr_comments,
+                include_pr_reviews=not args.no_pr_reviews,
+                checkout_pr_branch_flag=not args.no_checkout_branch,
             )
         )
 

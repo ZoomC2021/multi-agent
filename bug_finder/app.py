@@ -55,6 +55,40 @@ with st.sidebar:
     target_path = st.text_input("Target Path", value=default_target, help="Absolute path to file or directory to analyze")
     diff_only = st.checkbox("Analyze Git Diff Only", value=False, help="Only analyze files changed in git")
 
+    st.divider()
+    
+    st.header("🔍 PR Review Mode")
+    st.caption("Review a GitHub Pull Request with AI agents")
+    
+    pr_number_input = st.number_input(
+        "PR Number", 
+        min_value=1, 
+        value=None, 
+        step=1,
+        placeholder="Enter PR number",
+        help="GitHub PR number to review"
+    )
+    pr_repo_input = st.text_input(
+        "Repository (optional)", 
+        value="",
+        placeholder="owner/repo",
+        help="Leave empty to use current repo"
+    )
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        include_pr_comments = st.checkbox("Include Comments", value=True)
+    with col2:
+        include_pr_reviews = st.checkbox("Include Reviews", value=True)
+    
+    checkout_branch = st.checkbox(
+        "Checkout PR Branch", 
+        value=True,
+        help="Check out the PR branch locally for analysis"
+    )
+    
+    st.divider()
+
     # Model Selection
     available_models = [cfg["model"] for cfg in DEFAULT_WORKER_CONFIGS]
     model_labels = [f"{cfg['role']} ({cfg['model']})" for cfg in DEFAULT_WORKER_CONFIGS]
@@ -82,7 +116,17 @@ if run_button:
             st.error(f"Target path does not exist: {target_path}")
         else:
             specific_files = None
-            if diff_only:
+            
+            # Determine the effective PR number (handle type safety)
+            effective_pr_number = None
+            if pr_number_input is not None and pr_number_input > 0:
+                effective_pr_number = int(pr_number_input)
+            
+            # Handle conflict between diff_only and PR mode
+            if diff_only and effective_pr_number:
+                st.warning("Both 'Analyze Git Diff Only' and 'PR Number' are set. PR mode takes precedence.")
+                # PR mode takes precedence, so we don't populate specific_files from git diff
+            elif diff_only:
                 if not target.is_dir():
                      st.error("Git diff can only be run on a directory/repo.")
                      st.stop()
@@ -115,6 +159,11 @@ if run_button:
                                 worker_configs=selected_configs,
                                 verbose=True,
                                 specific_files=specific_files,
+                                pr_number=effective_pr_number,
+                                repo=pr_repo_input if pr_repo_input else None,
+                                include_pr_comments=include_pr_comments,
+                                include_pr_reviews=include_pr_reviews,
+                                checkout_pr_branch_flag=checkout_branch,
                             ),
                         )
                         result = future.result()
@@ -174,12 +223,23 @@ if not data:
     st.stop()
 
 # Display Task Info
+review_mode = data.get("review_mode", "local")
 st.markdown(f"**Task:** {data.get('task', 'Unknown Task')}")
 
-# Tabs
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["📝 Final Report", "👷 Worker Findings", "📊 Consensus Stats", "🔍 Raw Data"]
-)
+if review_mode == "github_pr":
+    pr_details = data.get("pr_details", {})
+    st.markdown(f"**Mode:** 🔍 PR Review | **PR:** [#{pr_details.get('number', 'N/A')}]({pr_details.get('url', '#')})")
+
+# Tabs - dynamic based on review mode
+if review_mode == "github_pr":
+    tab1, tab_pr, tab2, tab3, tab4 = st.tabs(
+        ["📝 Final Report", "📌 PR Context", "👷 Worker Findings", "📊 Consensus Stats", "🔍 Raw Data"]
+    )
+else:
+    tab1, tab2, tab3, tab4 = st.tabs(
+        ["📝 Final Report", "👷 Worker Findings", "📊 Consensus Stats", "🔍 Raw Data"]
+    )
+    tab_pr = None  # No PR tab in non-PR mode
 
 with tab1:
     st.header("Consolidated Final Report")
@@ -217,6 +277,99 @@ with tab1:
     if "orchestrator_result" in data:
         with st.expander("Orchestrator Details"):
             st.json(data["orchestrator_result"])
+
+# PR Context tab (only shown in PR mode)
+if tab_pr is not None:
+    with tab_pr:
+        st.header("Pull Request Context")
+        
+        pr_details = data.get("pr_details", {})
+        
+        # PR Header
+        col1, col2, col3 = st.columns([3, 1, 1])
+        with col1:
+            pr_title = pr_details.get("title", "Unknown")
+            pr_num = pr_details.get("number", "N/A")
+            st.subheader(f"#{pr_num} - {pr_title}")
+            
+            author = pr_details.get("author", {})
+            author_name = author.get("login", "Unknown") if isinstance(author, dict) else str(author)
+            st.caption(f"by {author_name}")
+        with col2:
+            state = pr_details.get("state", "UNKNOWN")
+            st.metric("State", state)
+        with col3:
+            additions = pr_details.get("additions", 0)
+            deletions = pr_details.get("deletions", 0)
+            st.metric("Changes", f"+{additions} -{deletions}")
+        
+        # PR Description
+        with st.expander("📄 Description", expanded=True):
+            body = pr_details.get("body", "")
+            if body and body.strip():
+                st.markdown(body)
+            else:
+                st.caption("_No description provided_")
+        
+        # Changed Files
+        st.subheader("📁 Changed Files")
+        changed_files = data.get("changed_files", [])
+        pr_files = pr_details.get("files", [])
+        
+        if pr_files:
+            for f in pr_files[:30]:
+                path = f.get("path", "Unknown")
+                adds = f.get("additions", 0)
+                dels = f.get("deletions", 0)
+                st.code(f"{path} (+{adds} -{dels})", language=None)
+            if len(pr_files) > 30:
+                st.caption(f"... and {len(pr_files) - 30} more files")
+        elif changed_files:
+            for f in changed_files[:30]:
+                st.code(f, language=None)
+            if len(changed_files) > 30:
+                st.caption(f"... and {len(changed_files) - 30} more files")
+        else:
+            st.info("No changed files information available.")
+        
+        # Existing Reviews
+        st.subheader("💬 Existing Reviewer Comments")
+        pr_reviews = data.get("pr_reviews", [])
+        
+        if pr_reviews:
+            for i, review in enumerate(pr_reviews):
+                author = review.get("author", {})
+                author_name = author.get("login", "Unknown") if isinstance(author, dict) else str(author)
+                state = review.get("state", "COMMENTED")
+                body = review.get("body", "").strip()
+                
+                if body:
+                    with st.expander(f"{author_name} - {state}"):
+                        st.markdown(body)
+                        
+                        # Show inline comment location if available
+                        path = review.get("path")
+                        line = review.get("line")
+                        if path and line:
+                            st.caption(f"📍 File: {path}, Line: {line}")
+        else:
+            st.info("No reviewer comments found.")
+        
+        # PR Comments
+        st.subheader("🗨️ PR Discussion")
+        pr_comments = data.get("pr_comments", [])
+        
+        if pr_comments:
+            for comment in pr_comments:
+                author = comment.get("author", {})
+                author_name = author.get("login", "Unknown") if isinstance(author, dict) else str(author)
+                body = comment.get("body", "").strip()
+                
+                if body:
+                    st.markdown(f"**{author_name}**: {body}")
+                    st.divider()
+        else:
+            st.info("No PR discussion comments found.")
 
 with tab2:
     st.header("Individual Worker Findings")
