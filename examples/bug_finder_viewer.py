@@ -86,18 +86,22 @@ with tab1:
     if report and str(report).strip():
         st.markdown(report)
         st.divider()
-        st.caption("Use the copy button in the top-right of the code block below to copy the report.")
+        st.caption(
+            "Use the copy button in the top-right of the code block below to copy the report."
+        )
         st.code(report, language="markdown")
     else:
         st.warning("⚠️ No final report available.")
-        st.markdown("""
+        st.markdown(
+            """
         **Possible reasons:**
         - The Orchestrator agent failed to generate a response.
         - API connection issues (check logs).
         - No consensus was reached among workers (though usually a report is still attempted).
         
         👉 **Please check the 'Worker Findings' tab to see individual bug reports.**
-        """)
+        """
+        )
 
         # Check for worker errors to display here as a hint
         workers = data.get("worker_results", [])

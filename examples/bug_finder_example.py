@@ -27,12 +27,7 @@ try:
 except ImportError:
     pass
 
-# PraisonAI/LiteLLM might fall back to OpenAI checks if model string isn't perfect.
-# Set a dummy key that passes "Required" check but fails auth if actually used.
-# if not os.getenv("OPENAI_API_KEY"):
-#    os.environ["OPENAI_API_KEY"] = "sk-proj-dummy-key-for-litellm-bypass"
-
-# Map GEMINI_API_KEY to GOOGLE_API_KEY for compatibility with some libraries
+# Map GEMINI_API_KEY to GOOGLE_API_KEY for LiteLLM compatibility
 if os.getenv("GEMINI_API_KEY") and not os.getenv("GOOGLE_API_KEY"):
     os.environ["GOOGLE_API_KEY"] = os.getenv("GEMINI_API_KEY")
 
@@ -42,7 +37,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from consensus_system import (
     ConsensusManager,
     ExternalCLIConsensusAgent,
-    PraisonConsensusAgent,
+    LiteLLMAgent,
     get_available_integrations,
 )
 
@@ -50,7 +45,6 @@ from consensus_system import (
 def log_event(message: str, log_file: Path):
     """Log an event to the execution log file."""
     with open(log_file, "a") as f:
-        timestamp = Path(__file__).stat().st_mtime  # Simple timestamp for demo
         import datetime
 
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -215,7 +209,7 @@ async def find_bugs_with_consensus(
     if not model.startswith("gemini/"):
         model = f"gemini/{model}"
 
-    orchestrator = PraisonConsensusAgent(
+    orchestrator = LiteLLMAgent(
         agent_id="orchestrator_api_agent",
         role=orchestrator_config["role"],
         instructions=orchestrator_instructions,
@@ -325,7 +319,7 @@ def print_results(result: dict, log_path: Path, json_path: Path, md_path: Path):
     workers = result.get("worker_results", [])
     total_workers = len(workers)
     successful_workers = sum(1 for w in workers if w.get("success", True))
-    
+
     consensus = result.get("worker_consensus", {})
     converged = "Converged" if consensus.get("converged", False) else "Not Converged"
     iterations = consensus.get("iterations", 0)

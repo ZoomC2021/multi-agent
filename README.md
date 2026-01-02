@@ -1,6 +1,6 @@
 # Multi-Agent Iterative Consensus System
 
-A production-ready PraisonAI-based multi-agent iterative consensus system that leverages multiple coding CLIs in headless mode for collaborative decision-making and code analysis.
+A production-ready multi-agent iterative consensus system powered by LiteLLM that supports 100+ LLM providers for collaborative decision-making and code analysis.
 
 ## Overview
 
@@ -10,7 +10,7 @@ This system implements an iterative consensus mechanism where multiple AI agents
 
 - **Multi-Agent Collaboration**: Multiple AI agents with specialized roles (analyzer, reviewer, optimizer, security)
 - **Iterative Consensus**: Agents reach agreement through iterative value updates and communication
-- **PraisonAI Integration**: Leverages PraisonAI framework for LLM-based agent execution
+- **LiteLLM Integration**: Supports 100+ LLM providers (OpenAI, Google Gemini, Anthropic, Azure, and more)
 - **Headless Mode**: Fully supports CLI-based execution without UI dependencies
 - **Configurable Topology**: Support for fully-connected, ring, and chain network topologies
 - **YAML Configuration**: Easy agent and workflow configuration through YAML files
@@ -150,10 +150,10 @@ workflow:
    - Coordinates collaborative tasks
    - Tracks convergence and history
 
-3. **PraisonConsensusAgent**: PraisonAI-backed agent
-   - Wraps PraisonAI agents for LLM execution
+3. **LiteLLMAgent**: LLM-backed agent powered by LiteLLM
+   - Uses 100+ LLM providers (OpenAI, Gemini, Claude, etc.)
    - Integrates with consensus system
-   - Falls back to simulation if PraisonAI unavailable
+   - Flexible model selection per agent
 
 4. **Configuration Module**: YAML-based configuration
    - Loads and validates configurations
@@ -282,14 +282,13 @@ consensus-cli init --output my_config.yaml
 ### Programmatic API
 
 ```python
-from consensus_system import load_config, ConsensusManager
-from consensus_system.praison_integration import create_praison_agents_from_config
+from consensus_system import load_config, ConsensusManager, create_litellm_agents_from_config
 
 # Load configuration
 config = load_config("agents.yaml")
 
-# Create PraisonAI-backed agents
-agents = create_praison_agents_from_config(config)
+# Create LiteLLM-backed agents
+agents = create_litellm_agents_from_config(config)
 
 # Create and configure manager
 manager = ConsensusManager(agents, max_iterations=15, verbose=True)
@@ -310,14 +309,14 @@ print(f"Final decision: {result['final_decision']}")
 Extend the system with custom agent roles:
 
 ```python
-from consensus_system.praison_integration import PraisonConsensusAgent
+from consensus_system import LiteLLMAgent
 
 # Create custom agent
-custom_agent = PraisonConsensusAgent(
+custom_agent = LiteLLMAgent(
     agent_id="custom_analyzer",
     role="CustomAnalyzer",
     instructions="Custom analysis instructions...",
-    llm="gpt-4",
+    llm="gemini/gemini-1.5-pro",
     verbose=True
 )
 
@@ -370,7 +369,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgments
 
-- Built with [PraisonAI](https://github.com/MervinPraison/PraisonAI) framework
+- Powered by [LiteLLM](https://github.com/BerriAI/litellm) for multi-provider LLM support
 - Inspired by distributed consensus algorithms and multi-agent systems research
 
 ## Support

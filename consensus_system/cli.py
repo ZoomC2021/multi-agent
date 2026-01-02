@@ -334,7 +334,7 @@ def list_available_clis():
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
-        description="PraisonAI Multi-Agent Iterative Consensus System",
+        description="Multi-Agent Iterative Consensus System (Powered by LiteLLM)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

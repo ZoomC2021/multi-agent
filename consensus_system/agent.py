@@ -115,11 +115,11 @@ class ConsensusAgent:
                         break
                 if not found:
                     value_counts.append((val, 1))
-            
+
             # Find max count
             if not value_counts:
-                 return self.value
-                 
+                return self.value
+
             # Find the value with the highest count
             # In case of tie, pick the first one encountered (deterministic for stable sort)
             winner = max(value_counts, key=lambda x: x[1])
@@ -128,22 +128,22 @@ class ConsensusAgent:
         elif strategy == "weighted":
             # Weighted average consensus
             # Includes self weight and neighbor weights
-            
+
             numerator = 0.0
             total_weight = 0.0
-            
+
             # Process self
             if isinstance(self.value, (int, float)) and not isinstance(self.value, bool):
                 numerator += float(self.value) * self.weight
                 total_weight += self.weight
-                
+
             # Process neighbors
             for neighbor in self.neighbors:
                 val = neighbor.value
                 if val is not None and isinstance(val, (int, float)) and not isinstance(val, bool):
                     numerator += float(val) * neighbor.weight
                     total_weight += neighbor.weight
-            
+
             if total_weight > 0:
                 return numerator / total_weight
 
@@ -152,7 +152,7 @@ class ConsensusAgent:
     def consensus_update(self, strategy: str = "average") -> Any:
         """
         Perform a consensus update based on neighbors' values.
-        
+
         Note: This updates the agent's state immediately. For synchronized updates,
         manager using calculate_consensus_value() followed by mass update_value() is preferred.
 
@@ -166,7 +166,7 @@ class ConsensusAgent:
         if new_value != self.value:
             self.update_value(new_value)
         return new_value
-    
+
     def execute(self, task: str, context: Optional[Dict] = None) -> Dict[str, Any]:
         """
         Execute a task using the agent's capabilities.
@@ -181,7 +181,7 @@ class ConsensusAgent:
         if self.verbose:
             print(f"[{self.role}] Executing task: {task}")
 
-        # Simulate agent execution (in real implementation, this would call PraisonAI)
+        # Simulate agent execution (in real implementation, use LiteLLMAgent)
         result = {
             "agent_id": self.agent_id,
             "role": self.role,

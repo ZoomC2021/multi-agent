@@ -72,7 +72,7 @@ Extensive type hinting is required for all function signatures and class members
 ### Core Components
 - `ConsensusAgent`: Base class for agents. Maintains state (`value`), `neighbors`, and `history`.
 - `ConsensusManager`: Orchestrates the network. Handles `topology` setup and `iterate_consensus` loops.
-- `PraisonConsensusAgent`: Specialized agent that integrates with the PraisonAI framework for LLM-based execution.
+- `LiteLLMAgent`: Specialized agent that integrates with LiteLLM for LLM-based execution (100+ providers).
 
 ### Consensus Logic
 - **Strategies:** `average` (numeric), `majority` (categorical), `weighted`.
@@ -89,7 +89,7 @@ consensus_system/
 ├── cli.py                # Command-line interface implementation
 ├── config.py             # Configuration loading and validation
 ├── manager.py            # ConsensusManager for orchestration
-└── praison_integration.py # PraisonAI agent integration
+└── litellm_agent.py      # LiteLLM agent integration
 examples/                 # Usage examples and sample configurations
   ├── simple_example.py   # Basic numeric consensus
   ├── advanced_example.py # Collaborative task consensus
@@ -100,7 +100,7 @@ examples/                 # Usage examples and sample configurations
 
 When adding new features or modifying agents:
 1. **Maintain Interface:** Do not break the `ConsensusAgent` or `ConsensusManager` public APIs.
-2. **Simulation Fallback:** Ensure LLM-based agents can fall back to simulation mode if PraisonAI or API keys are unavailable.
+2. **Error Handling:** Ensure LLM-based agents handle API errors gracefully if API keys are unavailable.
 3. **Verbose Logging:** Implement `verbose` flags to provide visibility into agent decision-making.
 4. **State Management:** Always update `self.history` when changing `self.value`.
 5. **Configurability:** New parameters should be added to the YAML configuration schema in `config.py`.
@@ -123,7 +123,7 @@ When adding new features or modifying agents:
 
 ### Extending Agent Capabilities
 1. If adding a new base behavior, modify `ConsensusAgent.execute`.
-2. For LLM-specific features, update `PraisonConsensusAgent` in `praison_integration.py`.
+2. For LLM-specific features, update `LiteLLMAgent` in `litellm_agent.py`.
 3. Ensure the `verbose` flag provides meaningful output for the new capability.
 
 ### Modifying Network Topology

@@ -1,6 +1,6 @@
 # Usage Guide
 
-Practical examples and use cases for the PraisonAI Multi-Agent Iterative Consensus System.
+Practical examples and use cases for the LiteLLM Multi-Agent Iterative Consensus System.
 
 ## Table of Contents
 
@@ -169,15 +169,14 @@ else:
 ### Example 2: Collaborative Task
 
 ```python
-from consensus_system import ConsensusManager
+from consensus_system import ConsensusManager, create_litellm_agents_from_config
 from consensus_system.config import load_config
-from consensus_system.praison_integration import create_praison_agents_from_config
 
 # Load configuration
 config = load_config("examples/coding_agents.yaml")
 
-# Create PraisonAI-backed agents
-agents = create_praison_agents_from_config(config)
+# Create LiteLLM-backed agents
+agents = create_litellm_agents_from_config(config)
 
 # Create manager
 manager = ConsensusManager(agents, verbose=True)
@@ -480,7 +479,7 @@ consensus:
 
 ## Next Steps
 
-- Check [INTEGRATION.md](INTEGRATION.md) for PraisonAI setup
+- Check [INTEGRATION.md](INTEGRATION.md) for LiteLLM setup
 - See [README.md](README.md) for architecture details
 - Explore [examples/](examples/) directory for more examples
-- Read [PraisonAI documentation](https://docs.praison.ai/) for advanced features
+- Read [LiteLLM documentation](https://docs.praison.ai/) for advanced features

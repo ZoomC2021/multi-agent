@@ -1,318 +1,184 @@
-# PraisonAI Integration Guide
+# LiteLLM Integration Guide
 
-This guide explains how to integrate the consensus system with actual PraisonAI agents for LLM-based execution.
+This guide explains how to use the consensus system with LiteLLM for multi-provider LLM support.
 
 ## Overview
 
-The multi-agent consensus system supports two modes:
+The consensus system uses **LiteLLM** to support 100+ LLM providers through a unified interface, including:
+- OpenAI (GPT-4, GPT-3.5-Turbo, etc.)
+- Google Gemini (via Google Cloud API)
+- Anthropic Claude
+- Azure OpenAI
+- And many more
 
-1. **Simulation Mode**: Agents provide pre-defined responses (no API key required)
-2. **PraisonAI Mode**: Agents use actual LLMs via PraisonAI (API key required)
+## Setting Up LiteLLM Integration
 
-## Setting Up PraisonAI Integration
+### 1. Install LiteLLM
 
-### 1. Install PraisonAI
+The system automatically requires LiteLLM. If you used `pip install -e .` or `pip install -r requirements.txt`, LiteLLM is already installed.
 
-The system will automatically detect if PraisonAI is installed. If you used `make install`, all dependencies including development ones are installed. To ensure PraisonAI is available:
+To explicitly ensure LiteLLM is installed:
 
 ```bash
-# Using Makefile
-make venv
-
-# Or manual installation
-pip install praisonaiagents
+pip install litellm>=1.0.0
 ```
 
 ### 2. Configure API Keys
 
-Set up your LLM provider API key:
+Set the appropriate environment variable for your LLM provider:
 
-#### For OpenAI (GPT-4, GPT-3.5)
-
+**For Google Gemini:**
 ```bash
-export OPENAI_API_KEY="your-api-key-here"
+export GEMINI_API_KEY="your-api-key"
+# or
+export GOOGLE_API_KEY="your-api-key"
 ```
 
-#### For Local LLM (LM Studio, Ollama)
-
+**For OpenAI:**
 ```bash
-export OPENAI_API_BASE="http://localhost:1234/v1"
-export OPENAI_API_KEY="not-needed"  # Placeholder for local servers
+export OPENAI_API_KEY="your-api-key"
 ```
 
-#### For Other Providers
+**For Anthropic Claude:**
+```bash
+export ANTHROPIC_API_KEY="your-api-key"
+```
 
-PraisonAI supports 100+ LLM providers. See [PraisonAI documentation](https://docs.praison.ai/) for details.
+For other providers, see [LiteLLM documentation](https://docs.litellm.ai/docs/providers).
 
-### 3. Using PraisonAI-Backed Agents
+### 3. Using LiteLLM-Backed Agents
 
-The system automatically uses PraisonAI when available:
+The system automatically uses LiteLLM when agents are created with a model string:
 
 ```python
-from consensus_system.config import load_config
-from consensus_system.praison_integration import create_praison_agents_from_config
-from consensus_system.manager import ConsensusManager
+from consensus_system import LiteLLMAgent, ConsensusManager
 
-# Load configuration
-config = load_config("examples/coding_agents.yaml")
-
-# Create PraisonAI-backed agents (will use real LLM if API key is set)
-agents = create_praison_agents_from_config(config)
-
-# Create manager and run
-manager = ConsensusManager(agents, verbose=True)
-manager.setup_network("fully_connected")
-
-# Execute collaborative task with real LLM responses
-result = manager.execute_collaborative_task(
-    task="Review this code for security issues: [your code here]",
-    consensus_strategy="average"
+# Create agents with different models
+agent1 = LiteLLMAgent(
+    agent_id="agent1",
+    role="Code Reviewer",
+    instructions="You are a Python expert...",
+    llm="gemini/gemini-1.5-pro"
 )
 
-# Access results safely
-for agent_result in result.get('agent_results', []):
-    role = agent_result.get('role', 'Unknown Agent')
-    response = str(agent_result.get('response', ''))
-    print(f"{role}: {response[:100]}...")
+agent2 = LiteLLMAgent(
+    agent_id="agent2",
+    role="Security Analyst",
+    instructions="You are a security expert...",
+    llm="gpt-4"
+)
+
+# Use with consensus manager
+manager = ConsensusManager(
+    agents=[agent1, agent2],
+    max_iterations=10
+)
+
+result = manager.execute_collaborative_task(
+    task="Review this code for bugs and security issues",
+    context={"file": "auth.py"}
+)
 ```
 
-### 4. CLI with PraisonAI
+### 4. Using Configuration Files
 
-The CLI automatically uses PraisonAI when API keys are configured:
-
-```bash
-# Set API key
-export OPENAI_API_KEY="your-key"
-
-# Run with PraisonAI-backed agents
-consensus-cli run \
-  --config examples/coding_agents.yaml \
-  --task "Analyze authentication module" \
-  --output results.json
-```
-
-## Configuration for Different LLMs
-
-### Using GPT-4
+Create agents from YAML configuration:
 
 ```yaml
 agents:
-  - name: code_analyzer
-    role: CodeAnalyzer
-    instructions: "Analyze code quality..."
-    llm: gpt-4  # or gpt-4-turbo, gpt-4o
-```
+  - name: "reviewer1"
+    role: "Python Expert"
+    instructions: "Review Python code for quality and best practices"
+    llm: "gpt-4"
+    
+  - name: "reviewer2"
+    role: "Security Expert"
+    instructions: "Analyze code for security vulnerabilities"
+    llm: "gemini/gemini-1.5-pro"
 
-### Using GPT-3.5 (Faster/Cheaper)
-
-```yaml
-agents:
-  - name: code_analyzer
-    role: CodeAnalyzer
-    instructions: "Analyze code quality..."
-    llm: gpt-3.5-turbo
-```
-
-### Using Local LLM
-
-```yaml
-agents:
-  - name: code_analyzer
-    role: CodeAnalyzer
-    instructions: "Analyze code quality..."
-    llm: local-model  # Model name from your local server
-```
-
-Then set:
-```bash
-export OPENAI_API_BASE="http://localhost:1234/v1"
-export OPENAI_API_KEY="not-needed"
-```
-
-### Using Claude (Anthropic)
-
-```yaml
-agents:
-  - name: code_analyzer
-    role: CodeAnalyzer
-    instructions: "Analyze code quality..."
-    llm: claude-3-opus  # or claude-3-sonnet, claude-3-haiku
-```
-
-Set API key:
-```bash
-export ANTHROPIC_API_KEY="your-anthropic-key"
-```
-
-## Fallback Behavior
-
-The system gracefully handles missing API keys:
-
-1. **PraisonAI installed + API key set**: Uses actual LLM
-2. **PraisonAI installed + No API key**: Falls back to simulation mode
-3. **PraisonAI not installed**: Uses simulation mode
-
-This allows testing without API keys and ensures the system always works.
-
-## Best Practices
-
-### 1. Agent Instructions
-
-Write clear, specific instructions for each agent:
-
-```yaml
-agents:
-  - name: security_expert
-    role: SecurityExpert
-    instructions: |
-      You are a security expert. For each code review:
-      1. Identify security vulnerabilities (SQL injection, XSS, etc.)
-      2. Check for authentication/authorization issues
-      3. Review data validation and sanitization
-      4. Rate security on a scale of 1-10
-      5. Provide specific, actionable recommendations
-```
-
-### 2. Consensus Strategy
-
-Choose the right consensus strategy:
-
-- **average**: Best for numeric scores (e.g., code quality ratings)
-- **majority**: Best for categorical decisions (e.g., approve/reject)
-- **weighted**: Advanced - weight agents by expertise
-
-### 3. Iteration Settings
-
-Adjust based on your needs:
-
-```yaml
 consensus:
-  max_iterations: 15  # More iterations = better convergence
-  convergence_threshold: 0.01  # Lower = stricter convergence
+  max_iterations: 15
+  convergence_threshold: 0.01
+  topology: "fully_connected"
+  strategy: "average"
 ```
 
-### 4. Network Topology
-
-- **fully_connected**: Fastest convergence, best for critical decisions
-- **ring**: Slower but more diverse perspectives
-- **chain**: Sequential review, good for pipeline workflows
-
-## Example: Production Setup
-
-```bash
-# production_setup.sh
-
-# Install using Makefile
-make install
-
-# Set API keys (use secrets management in production)
-export OPENAI_API_KEY="${OPENAI_SECRET}"
-
-# Run consensus review
-make run ARGS='run --config production_agents.yaml --task "Security audit of payment processing module" --output audit_results.json'
-
-# Check exit code
-if [ $? -eq 0 ]; then
-    echo "Consensus review completed successfully"
-    # Process results...
-else
-    echo "Consensus review failed"
-    exit 1
-fi
-```
-
-## Monitoring and Debugging
-
-### Enable Verbose Mode
+Then load and use it:
 
 ```python
-manager = ConsensusManager(agents, verbose=True)
+from consensus_system import load_config, create_litellm_agents_from_config, ConsensusManager
+
+config = load_config("agents.yaml")
+agents = create_litellm_agents_from_config(config)
+manager = ConsensusManager(agents=agents)
 ```
 
-Or with CLI:
-```bash
-consensus-cli run --config agents.yaml --verbose
+## Supported LiteLLM Models
+
+LiteLLM supports 100+ LLM providers. Here are common model strings:
+
+### Google Gemini
+```
+gemini/gemini-1.5-pro
+gemini/gemini-1.5-flash
+gemini/gemini-3-pro-preview
 ```
 
-### Check Agent Responses
-
-```python
-result = manager.execute_collaborative_task(task="...")
-
-for agent_result in result.get('agent_results', []):
-    role = agent_result.get('role', 'Unknown Agent')
-    response = str(agent_result.get('response', ''))
-    print(f"{role}: {response[:100]}...")
-    print(f"Mode: {agent_result.get('mode')}")  # 'praison' or 'simulation'
+### OpenAI
+```
+gpt-4
+gpt-4-turbo
+gpt-3.5-turbo
 ```
 
-### Consensus History
-
-```python
-consensus = result.get('consensus', {})
-
-for iteration in consensus.get('history', []):
-    iter_num = iteration.get('iteration', '?')
-    values = iteration.get('values', {})
-    print(f"Iteration {iter_num}: {values}")
+### Anthropic Claude
 ```
+claude-3-5-sonnet-20241022
+claude-3-opus-20240229
+claude-3-sonnet-20240229
+```
+
+For a complete list, see [LiteLLM documentation](https://docs.litellm.ai/docs/providers).
 
 ## Troubleshooting
 
-### "OPENAI_API_KEY environment variable is required"
+### "GOOGLE_API_KEY not found" with Gemini models
 
-- Set the API key: `export OPENAI_API_KEY="your-key"`
-- Or use local LLM: `export OPENAI_API_BASE="http://localhost:1234/v1"`
+The system automatically maps `GEMINI_API_KEY` to `GOOGLE_API_KEY`. Make sure one of these is set:
 
-### Agents running in simulation mode
+```bash
+# Option 1: Set GEMINI_API_KEY
+export GEMINI_API_KEY="your-key"
 
-- Check if API key is set: `echo $OPENAI_API_KEY`
-- Verify PraisonAI is installed: `pip show praisonaiagents`
-- Look for error messages in verbose output
-
-### Slow convergence
-
-- Increase `max_iterations` in config
-- Relax `convergence_threshold`
-- Try different network topology
-
-## Advanced Features
-
-### Custom Tools
-
-Add tools to agents:
-
-```python
-from praisonaiagents import Agent
-
-agent = PraisonConsensusAgent(
-    agent_id="analyzer",
-    role="CodeAnalyzer",
-    instructions="...",
-    tools=[custom_tool_1, custom_tool_2]
-)
+# Option 2: Set GOOGLE_API_KEY directly
+export GOOGLE_API_KEY="your-key"
 ```
 
-### Workflow Customization
+### Model not recognized
 
-Implement custom consensus strategies:
+Ensure you're using the correct model string. For Gemini, use the format: `gemini/gemini-model-name`
 
-```python
-class CustomConsensusManager(ConsensusManager):
-    def custom_consensus_update(self, agents):
-        # Your custom logic here
-        pass
+Check the [LiteLLM providers list](https://docs.litellm.ai/docs/providers) for the exact model identifier.
+
+### Authentication errors
+
+Verify your API key is correct and the environment variable is set:
+
+```bash
+# Test that the key is available to Python
+python -c "import os; print(os.getenv('GOOGLE_API_KEY'))"
 ```
 
-## Resources
+## Performance and Rate Limiting
 
-- [PraisonAI Documentation](https://docs.praison.ai/)
-- [PraisonAI GitHub](https://github.com/MervinPraison/PraisonAI)
-- [Multi-Agent Consensus System Repository](https://github.com/ZoomC2021/multi-agent)
+LiteLLM handles rate limiting and retries automatically. However:
 
-## Support
+- Consider adding delays between requests if running many agents
+- Use `verbose=False` in agents to reduce API calls
+- Monitor your LLM provider's usage dashboard
 
-For issues with:
-- **Consensus System**: Open an issue on the GitHub repository
-- **PraisonAI Integration**: Check PraisonAI documentation or GitHub issues
-- **LLM API Keys**: Contact your LLM provider
+## See Also
+
+- [USAGE.md](USAGE.md) - Usage examples and patterns
+- [SUMMARY.md](SUMMARY.md) - System architecture overview
+- [LiteLLM Docs](https://docs.litellm.ai/) - Comprehensive LiteLLM documentation

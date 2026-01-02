@@ -12,20 +12,20 @@ from .base import ExternalCLIIntegration
 class CursorCLIIntegration(ExternalCLIIntegration):
     """
     Integration for Cursor CLI.
-    
+
     Requires:
     - `cursor` CLI installed
     - CURSOR_API_KEY environment variable set (or logged in session)
-    
+
     Example:
         cursor = CursorCLIIntegration(workspace="/my/project")
         result = await cursor.execute("Add error handling to utils.py")
     """
-    
+
     CLI_NAME = "cursor-agent"
     API_KEY_ENV_VAR = "CURSOR_API_KEY"
     INSTALL_HINT = "npm install -g cursor-agent or download from cursor.sh"
-    
+
     def __init__(
         self,
         workspace: str = ".",
@@ -35,11 +35,11 @@ class CursorCLIIntegration(ExternalCLIIntegration):
         force: bool = False,
         model: Optional[str] = None,
         stream_partial: bool = False,
-        resume_session: Optional[str] = None
+        resume_session: Optional[str] = None,
     ):
         """
         Initialize Cursor CLI integration.
-        
+
         Args:
             workspace: Working directory
             output_format: Output format (json/text)
@@ -54,15 +54,12 @@ class CursorCLIIntegration(ExternalCLIIntegration):
         self.model = model
         self.stream_partial = stream_partial
         self.resume_session = resume_session
-        
+
         # Parent init checks requirements
         super().__init__(
-            workspace=workspace,
-            output_format=output_format,
-            timeout=timeout,
-            verbose=verbose
+            workspace=workspace, output_format=output_format, timeout=timeout, verbose=verbose
         )
-    
+
     def check_requirements(self) -> None:
         """
         Override to make API key optional for Cursor.
@@ -70,21 +67,21 @@ class CursorCLIIntegration(ExternalCLIIntegration):
         """
         import shutil
         from .base import CLINotFoundError
-        
+
         if not shutil.which(self.CLI_NAME):
-            raise CLINotFoundError(
-                f"{self.CLI_NAME} CLI not found in PATH. {self.INSTALL_HINT}"
-            )
+            raise CLINotFoundError(f"{self.CLI_NAME} CLI not found in PATH. {self.INSTALL_HINT}")
         # Note: CURSOR_API_KEY is optional, Cursor can use session auth
-    
-    async def execute(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+
+    async def execute(
+        self, prompt: str, context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Execute a prompt using Cursor CLI.
-        
+
         Args:
             prompt: The task/prompt to execute
             context: Additional context
-            
+
         Returns:
             Dictionary with:
             - response: Cursor's response
@@ -92,75 +89,71 @@ class CursorCLIIntegration(ExternalCLIIntegration):
             - raw_output: Raw CLI output
         """
         args = self._build_args(prompt, context)
-        
+
         try:
             result = await self._run_cli(args)
-            
+
             if result.returncode != 0:
                 return {
                     "response": "",
                     "success": False,
                     "raw_output": result.stdout,
                     "error": result.stderr or f"CLI exited with code {result.returncode}",
-                    "cli": self.CLI_NAME
+                    "cli": self.CLI_NAME,
                 }
-            
+
             # Parse output based on format
             if self.output_format == "json":
                 parsed = self._parse_json_output(result.stdout)
                 # cursor-agent returns {"type":"result", "result": "..."} format
-                response = parsed.get("result", parsed.get("content", parsed.get("response", result.stdout)))
+                response = parsed.get(
+                    "result", parsed.get("content", parsed.get("response", result.stdout))
+                )
             else:
                 response = result.stdout
                 parsed = {"raw": result.stdout}
-            
+
             return {
                 "response": response,
                 "success": True,
                 "raw_output": result.stdout,
                 "parsed": parsed,
-                "cli": self.CLI_NAME
+                "cli": self.CLI_NAME,
             }
-            
+
         except Exception as e:
-            return {
-                "response": "",
-                "success": False,
-                "error": str(e),
-                "cli": self.CLI_NAME
-            }
-    
+            return {"response": "", "success": False, "error": str(e), "cli": self.CLI_NAME}
+
     def _build_args(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> List[str]:
         """Build CLI arguments for execution."""
         # Prompt is positional argument (first)
         args = [prompt]
-        
+
         # Print mode for headless/non-interactive use
         args.append("--print")
-        
+
         # Force mode - auto-approve commands
         if self.force:
             args.append("--force")
-        
+
         # Model selection
         if self.model:
             args.extend(["--model", self.model])
-        
+
         # Output format
         if self.output_format == "json":
             args.extend(["--output-format", "json"])
-        
+
         # Streaming
         if self.stream_partial:
             args.append("--stream-partial-output")
-        
+
         # Resume session
         if self.resume_session:
             args.extend(["--resume", self.resume_session])
-        
+
         # Workspace
         if self.workspace and self.workspace != ".":
             args.extend(["--workspace", self.workspace])
-        
-        return args
 
+        return args

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository contains a production-ready **PraisonAI Multi-Agent Iterative Consensus System** that leverages multiple coding CLIs in headless mode for collaborative decision-making and code analysis.
+This repository contains a production-ready **LiteLLM Multi-Agent Iterative Consensus System** that leverages multiple coding CLIs in headless mode for collaborative decision-making and code analysis.
 
 ## What Was Implemented
 
@@ -21,10 +21,10 @@ This repository contains a production-ready **PraisonAI Multi-Agent Iterative Co
    - Detects convergence
    - Coordinates collaborative tasks
 
-3. **PraisonConsensusAgent** (`consensus_system/praison_integration.py`)
-   - Wraps PraisonAI agents for LLM execution
+3. **LiteLLMAgent** (`consensus_system/litellm_agent.py`)
+   - Wraps LiteLLM agents for LLM execution
    - Gracefully falls back to simulation when API keys unavailable
-   - Supports 100+ LLM providers via PraisonAI
+   - Supports 100+ LLM providers via LiteLLM
 
 4. **Configuration Module** (`consensus_system/config.py`)
    - YAML-based configuration
@@ -41,7 +41,7 @@ This repository contains a production-ready **PraisonAI Multi-Agent Iterative Co
 ✓ **Multi-Agent Collaboration**: Multiple specialized AI agents work together  
 ✓ **Iterative Consensus**: Agents reach agreement through repeated communication  
 ✓ **Headless Mode**: Full CLI support without UI dependencies  
-✓ **PraisonAI Integration**: Leverages actual LLMs when API keys are available  
+✓ **LiteLLM Integration**: Leverages actual LLMs when API keys are available  
 ✓ **Graceful Fallback**: Works in simulation mode without API keys  
 ✓ **Flexible Topologies**: Fully-connected, ring, and chain networks  
 ✓ **Multiple Strategies**: Average, majority voting, and weighted consensus  
@@ -52,7 +52,7 @@ This repository contains a production-ready **PraisonAI Multi-Agent Iterative Co
 
 - **README.md**: Overview, architecture, and quick start
 - **USAGE.md**: Practical examples and use cases
-- **INTEGRATION.md**: PraisonAI integration guide
+- **INTEGRATION.md**: LiteLLM integration guide
 - **SUMMARY.md**: This implementation summary
 
 ### Examples
@@ -63,7 +63,7 @@ This repository contains a production-ready **PraisonAI Multi-Agent Iterative Co
    - Convergence visualization
 
 2. **Advanced Example** (`examples/advanced_example.py`)
-   - PraisonAI integration demonstration
+   - LiteLLM integration demonstration
    - Comprehensive results display
    - Convergence history analysis
 
@@ -167,9 +167,9 @@ else:
     print(f"Consensus: {consensus_val}")
 ```
 
-## Integration with PraisonAI
+## Integration with LiteLLM
 
-The system seamlessly integrates with PraisonAI:
+The system seamlessly integrates with LiteLLM:
 
 1. **With API Key**: Uses actual LLM for intelligent responses
 2. **Without API Key**: Falls back to simulation mode
@@ -179,7 +179,7 @@ The system seamlessly integrates with PraisonAI:
 # Set API key for real LLM execution
 export OPENAI_API_KEY="your-key"
 
-# Run with PraisonAI
+# Run with LiteLLM
 consensus-cli run --task "Your task"
 ```
 
@@ -226,10 +226,10 @@ Potential areas for expansion:
 ## Technical Stack
 
 - **Language**: Python 3.8+
-- **Framework**: PraisonAI
+- **Framework**: LiteLLM
 - **Configuration**: YAML
 - **CLI**: argparse
-- **LLM Support**: 100+ providers via PraisonAI
+- **LLM Support**: 100+ providers via LiteLLM
 
 ## Installation
 
@@ -255,7 +255,7 @@ For issues, questions, or contributions:
 
 This implementation provides a complete, production-ready multi-agent consensus system that:
 - ✓ Meets all requirements in the problem statement
-- ✓ Leverages PraisonAI for coding CLIs
+- ✓ Leverages LiteLLM for coding CLIs
 - ✓ Supports headless mode operation
 - ✓ Implements iterative consensus mechanism
 - ✓ Includes comprehensive documentation

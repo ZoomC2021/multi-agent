@@ -120,9 +120,6 @@ class ConsensusManager:
                 agent.update_value(new_val)
                 changes.append((old_val, new_val))
 
-        # Get new values for history
-        new_values = [agent.value for agent in self.agents]
-
         # Record iteration state
         iteration_state = {
             "iteration": self.iteration_count,
@@ -283,18 +280,17 @@ class ConsensusManager:
 
         # Each agent executes the task in parallel
         import concurrent.futures
-        
+
         agent_results = []
         if self.verbose:
             print(f"Executing task with {len(self.agents)} agents in parallel...")
-            
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.agents)) as executor:
             # Map each agent to an execution future
             future_to_agent = {
-                executor.submit(agent.execute, task, context): agent 
-                for agent in self.agents
+                executor.submit(agent.execute, task, context): agent for agent in self.agents
             }
-            
+
             # Collect results mapped to agents
             agent_results_map = {}
             for future in concurrent.futures.as_completed(future_to_agent):
@@ -309,7 +305,7 @@ class ConsensusManager:
                         "agent_id": agent.agent_id,
                         "role": agent.role,
                         "error": str(e),
-                        "value": agent.value
+                        "value": agent.value,
                     }
 
         # Reconstruct results list in original agent order
@@ -330,7 +326,7 @@ class ConsensusManager:
                     new_value = 5.0  # Default neutral value
 
             agent.update_value(new_value)
-            
+
             # Ensure the result dictionary reflects the updated value
             result["value"] = new_value
 
