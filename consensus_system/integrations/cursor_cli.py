@@ -70,6 +70,12 @@ class CursorCLIIntegration(ExternalCLIIntegration):
 
         if not shutil.which(self.CLI_NAME):
             raise CLINotFoundError(f"{self.CLI_NAME} CLI not found in PATH. {self.INSTALL_HINT}")
+        
+        # Call parent to ensure any other base checks run (except API key which we handle as optional)
+        # We temporarily unset REQUIRE_API_KEY for the parent check if needed, 
+        # but since parent only checks it if REQUIRE_API_KEY is True, and we didn't set it to True on class, we are fine.
+        super().check_requirements()
+        
         # Note: CURSOR_API_KEY is optional, Cursor can use session auth
 
     async def execute(

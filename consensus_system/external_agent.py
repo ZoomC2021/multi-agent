@@ -5,6 +5,7 @@ Wraps external CLI integrations (Claude, Codex, Gemini, Cursor) as consensus age
 """
 
 import asyncio
+import concurrent.futures
 from typing import Any, Dict, List, Optional
 
 from consensus_system.agent import ConsensusAgent

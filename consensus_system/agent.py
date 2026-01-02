@@ -45,7 +45,7 @@ class ConsensusAgent:
         self.llm = llm
         self.verbose = verbose
         self.neighbors: List["ConsensusAgent"] = []
-        self.history: List[Any] = []
+        self.history: List[Any] = [initial_value] if initial_value is not None else []
 
     def add_neighbor(self, agent: "ConsensusAgent"):
         """Add a neighboring agent for consensus communication."""

@@ -37,12 +37,16 @@ with st.sidebar:
     if bug_report_candidates:
         default_index = options.index(bug_report_candidates[0])
 
-    selected_file_path = st.selectbox(
-        "Select a report file:",
-        options=options,
-        index=default_index if options else 0,
-        placeholder="No JSON reports found",
-    )
+    if options:
+        selected_file_path = st.selectbox(
+            "Select a report file:",
+            options=options,
+            index=default_index if options else 0,
+            placeholder="No JSON reports found",
+        )
+    else:
+        st.info("No existing report files found in current or examples directory.")
+        selected_file_path = None
 
     uploaded_file = st.file_uploader("Or upload a JSON report", type="json")
 

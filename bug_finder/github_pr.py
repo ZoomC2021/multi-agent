@@ -6,10 +6,12 @@ This module provides functions to interact with GitHub Pull Requests via the `gh
 It handles fetching PR details, diffs, reviews, comments, and checking out PR branches.
 """
 
+import contextlib
 import json
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
@@ -329,7 +331,6 @@ def _parse_paginated_json(output: str) -> List[dict]:
                     start = None
     
     if parse_errors > 0:
-        import sys
         print(f"Warning: Failed to parse {parse_errors} JSON array(s) from paginated output", file=sys.stderr)
     
     return items
@@ -729,7 +730,6 @@ def get_pr_changed_file_paths(pr_number: int, repo: Optional[str] = None, worksp
     
     return valid_files
 
-import contextlib
 
 @contextlib.contextmanager
 def manage_pr_branch(pr_number: int, repo: Optional[str], workspace: Optional[str] = None, should_checkout: bool = False):

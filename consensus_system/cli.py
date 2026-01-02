@@ -39,7 +39,8 @@ def create_agents_from_config(config: dict) -> list:
     Returns:
         List of ConsensusAgent instances
     """
-    from consensus_system.llm_agent import LiteLLMAgent
+    from consensus_system.litellm_agent import LiteLLMAgent
+    from consensus_system.external_agent import ExternalCLIConsensusAgent
     
     agents = []
     

@@ -241,12 +241,23 @@ class ConsensusManager:
             else:
                 # For non-numeric or empty, use most common value
                 if final_values:
-                    value_counts: Dict[str, int] = {}
+                    # Use object identity/equality for counting, not string conversion
+                    # We accept unhashable types by using a list of (value, count) tuples
+                    value_counts = []
                     for val in final_values:
-                        val_str = str(val)
-                        value_counts[val_str] = value_counts.get(val_str, 0) + 1
+                        found = False
+                        for i, (existing_val, count) in enumerate(value_counts):
+                            if existing_val == val:
+                                value_counts[i] = (existing_val, count + 1)
+                                found = True
+                                break
+                        if not found:
+                            value_counts.append((val, 1))
+                    
                     if value_counts:
-                        consensus_value = max(value_counts, key=lambda k: value_counts[k])
+                         # Find max count
+                        winner = max(value_counts, key=lambda x: x[1])
+                        consensus_value = winner[0]
                     else:
                         consensus_value = None
                 else:
@@ -320,7 +331,7 @@ class ConsensusManager:
                         "agent_id": agent.agent_id,
                         "role": agent.role,
                         "error": str(e),
-                        "value": 0.0,  # Assign 0.0 on error
+                        "value": None,  # Assign None on error so it is ignored
                     }
 
         # Reconstruct results list in original agent order
@@ -332,16 +343,17 @@ class ConsensusManager:
             new_value = result.get("value")
 
             if new_value is None:
-                # Fallback to a heuristic if no explicit value is provided
+                # Fallback to None if no explicit value is provided
                 response = result.get("response", "")
-                if isinstance(response, str):
+                if isinstance(response, str) and response:
                     # Heuristic: score based on response length as a placeholder for detail/confidence
                     # Standardize divisor to 100.0 (matches external_agent.py)
                     new_value = min(len(response) / 100.0, 10.0)
                 else:
-                    new_value = 5.0  # Default neutral value
+                    new_value = None  # Default to None so it's ignored in consensus
 
-            agent.update_value(new_value)
+            if new_value != agent.value:
+                agent.update_value(new_value)
 
             # Ensure the result dictionary reflects the updated value
             result["value"] = new_value

@@ -14,7 +14,7 @@ class GeminiCLIIntegration(ExternalCLIIntegration):
     Integration for Google Gemini CLI.
 
     Requires:
-    - `gemini` CLI installed (npm install -g @anthropic-ai/gemini-cli or pip install gemini-cli)
+    - `gemini` CLI installed (npm install -g @google/gemini-cli or pip install gemini-cli)
     - GEMINI_API_KEY environment variable set
 
     Example:
