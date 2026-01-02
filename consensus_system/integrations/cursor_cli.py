@@ -22,9 +22,9 @@ class CursorCLIIntegration(ExternalCLIIntegration):
         result = await cursor.execute("Add error handling to utils.py")
     """
     
-    CLI_NAME = "cursor"
+    CLI_NAME = "cursor-agent"
     API_KEY_ENV_VAR = "CURSOR_API_KEY"
-    INSTALL_HINT = "Download from cursor.sh"
+    INSTALL_HINT = "npm install -g cursor-agent or download from cursor.sh"
     
     def __init__(
         self,
@@ -108,7 +108,8 @@ class CursorCLIIntegration(ExternalCLIIntegration):
             # Parse output based on format
             if self.output_format == "json":
                 parsed = self._parse_json_output(result.stdout)
-                response = parsed.get("content", parsed.get("response", result.stdout))
+                # cursor-agent returns {"type":"result", "result": "..."} format
+                response = parsed.get("result", parsed.get("content", parsed.get("response", result.stdout)))
             else:
                 response = result.stdout
                 parsed = {"raw": result.stdout}
@@ -131,34 +132,35 @@ class CursorCLIIntegration(ExternalCLIIntegration):
     
     def _build_args(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> List[str]:
         """Build CLI arguments for execution."""
-        args = []
+        # Prompt is positional argument (first)
+        args = [prompt]
         
-        # Force mode
+        # Print mode for headless/non-interactive use
+        args.append("--print")
+        
+        # Force mode - auto-approve commands
         if self.force:
             args.append("--force")
         
-        # Model
+        # Model selection
         if self.model:
             args.extend(["--model", self.model])
         
         # Output format
         if self.output_format == "json":
-            args.append("--json")
+            args.extend(["--output-format", "json"])
         
         # Streaming
         if self.stream_partial:
-            args.append("--stream-partial")
+            args.append("--stream-partial-output")
         
         # Resume session
         if self.resume_session:
             args.extend(["--resume", self.resume_session])
         
-        # Context files if provided
-        if context and context.get("files"):
-            for file_path in context["files"]:
-                args.extend(["--file", file_path])
-        
-        # Add the prompt
-        args.append(prompt)
+        # Workspace
+        if self.workspace and self.workspace != ".":
+            args.extend(["--workspace", self.workspace])
         
         return args
+

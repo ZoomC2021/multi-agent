@@ -1,7 +1,7 @@
 """
 External CLI Integrations for Consensus System.
 
-Provides wrappers for external AI coding CLIs (Claude Code, Codex, Gemini, Cursor)
+Provides wrappers for external AI coding CLIs (Claude Code, Codex, Gemini, Cursor, OpenCode)
 that can be used as agents in the consensus system.
 
 All integrations follow fail-fast design: they raise errors immediately if
@@ -32,6 +32,7 @@ from .claude_code import ClaudeCodeIntegration
 from .codex_cli import CodexCLIIntegration
 from .gemini_cli import GeminiCLIIntegration
 from .cursor_cli import CursorCLIIntegration
+from .opencode_cli import OpenCodeCLIIntegration
 
 
 __all__ = [
@@ -44,6 +45,7 @@ __all__ = [
     "CodexCLIIntegration",
     "GeminiCLIIntegration",
     "CursorCLIIntegration",
+    "OpenCodeCLIIntegration",
     # Utilities
     "get_available_integrations",
     "get_integration_class",
@@ -57,6 +59,7 @@ INTEGRATION_REGISTRY: Dict[str, Type[ExternalCLIIntegration]] = {
     "codex": CodexCLIIntegration,
     "gemini": GeminiCLIIntegration,
     "cursor": CursorCLIIntegration,
+    "opencode": OpenCodeCLIIntegration,
 }
 
 
@@ -95,7 +98,7 @@ def get_integration_class(name: str) -> Optional[Type[ExternalCLIIntegration]]:
     Get the integration class for a given CLI name.
     
     Args:
-        name: CLI name (claude, codex, gemini, cursor)
+        name: CLI name (claude, codex, gemini, cursor, opencode)
         
     Returns:
         Integration class, or None if not found

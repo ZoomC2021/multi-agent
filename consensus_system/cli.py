@@ -10,6 +10,13 @@ import json
 from pathlib import Path
 from typing import Optional
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv is optional
+
 from consensus_system.agent import ConsensusAgent
 from consensus_system.manager import ConsensusManager
 from consensus_system.config import load_config, create_default_config, save_config
