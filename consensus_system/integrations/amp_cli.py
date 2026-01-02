@@ -33,7 +33,7 @@ class AmpCLIIntegration(ExternalCLIIntegration):
         timeout: int = 300,
         verbose: bool = False,
         force: bool = False,
-        mode: str = "smart",
+        mode: str = "free",
         use_sonnet: bool = False,
         no_ide: bool = True,
         model: Optional[str] = None,
