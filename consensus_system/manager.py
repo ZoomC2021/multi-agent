@@ -173,7 +173,7 @@ class ConsensusManager:
                     val_str = str(val)
                     value_counts[val_str] = value_counts.get(val_str, 0) + 1
                 consensus_value = max(value_counts, key=value_counts.get)
-        except:
+        except (TypeError, ValueError, AttributeError):
             consensus_value = None
             
         results = {

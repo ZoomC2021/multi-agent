@@ -10,11 +10,14 @@ from consensus_system.config import load_config
 from consensus_system.manager import ConsensusManager
 from consensus_system.praison_integration import create_praison_agents_from_config
 
+# Constants
+SEPARATOR_WIDTH = 70
+
 
 def main():
-    print("="*70)
+    print("="*SEPARATOR_WIDTH)
     print("PraisonAI Multi-Agent Consensus System - Advanced Example")
-    print("="*70)
+    print("="*SEPARATOR_WIDTH)
     
     # Load configuration
     print("\n1. Loading configuration...")
@@ -53,7 +56,7 @@ def main():
     
     # Execute collaborative task
     print("\n5. Executing collaborative code review task...")
-    print("-" * 70)
+    print("-" * SEPARATOR_WIDTH)
     
     task = """
     Review the following Python authentication function for security and quality:
@@ -72,35 +75,35 @@ def main():
     )
     
     # Display comprehensive results
-    print("\n" + "="*70)
+    print("\n" + "="*SEPARATOR_WIDTH)
     print("COLLABORATIVE REVIEW RESULTS")
-    print("="*70)
+    print("="*SEPARATOR_WIDTH)
     
     print("\nTask:")
-    print("-" * 70)
+    print("-" * SEPARATOR_WIDTH)
     print(result['task'][:200] + "...")
     
     print("\n\nAgent Responses:")
-    print("-" * 70)
+    print("-" * SEPARATOR_WIDTH)
     for agent_result in result['agent_results']:
         print(f"\n{agent_result['role']}:")
         print(f"  Response: {agent_result['response'][:100]}...")
         print(f"  Mode: {agent_result.get('mode', 'standard')}")
     
     print("\n\nConsensus Details:")
-    print("-" * 70)
+    print("-" * SEPARATOR_WIDTH)
     consensus = result['consensus']
     print(f"Converged: {consensus['converged']}")
     print(f"Iterations: {consensus['iterations']}")
     print(f"Final Consensus Value: {consensus['consensus_value']:.2f}")
     
     print("\n\nFinal Agent Values:")
-    print("-" * 70)
+    print("-" * SEPARATOR_WIDTH)
     for agent_id, value in consensus['final_values'].items():
         print(f"  {agent_id}: {value:.2f}")
     
     print("\n\nInterpretation:")
-    print("-" * 70)
+    print("-" * SEPARATOR_WIDTH)
     consensus_value = consensus['consensus_value']
     
     if consensus_value < 3.0:
@@ -130,15 +133,15 @@ def main():
     # Show convergence history
     if len(consensus['history']) > 0:
         print("\n\nConsensus Convergence History:")
-        print("-" * 70)
+        print("-" * SEPARATOR_WIDTH)
         for i, iteration in enumerate(consensus['history'][:5]):  # Show first 5
             print(f"Iteration {iteration['iteration']}: ", end="")
             values = [f"{v:.2f}" for v in iteration['values'].values()]
             print(f"[{', '.join(values)}]")
     
-    print("\n" + "="*70)
+    print("\n" + "="*SEPARATOR_WIDTH)
     print("Advanced example completed successfully!")
-    print("="*70)
+    print("="*SEPARATOR_WIDTH)
 
 
 if __name__ == "__main__":

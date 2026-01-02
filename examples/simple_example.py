@@ -8,11 +8,14 @@ and run iterative consensus to reach agreement.
 
 from consensus_system import ConsensusAgent, ConsensusManager
 
+# Constants
+SEPARATOR_WIDTH = 60
+
 
 def main():
-    print("="*60)
+    print("="*SEPARATOR_WIDTH)
     print("Multi-Agent Consensus System - Simple Example")
-    print("="*60)
+    print("="*SEPARATOR_WIDTH)
     
     # Create three coding agents with different initial assessments
     print("\n1. Creating agents...")
@@ -62,14 +65,14 @@ def main():
     
     # Run consensus
     print("\n4. Running consensus algorithm...")
-    print("-" * 60)
+    print("-" * SEPARATOR_WIDTH)
     
     result = manager.run_consensus(strategy="average")
     
     # Display results
-    print("\n" + "="*60)
+    print("\n" + "="*SEPARATOR_WIDTH)
     print("RESULTS")
-    print("="*60)
+    print("="*SEPARATOR_WIDTH)
     
     print(f"\nConverged: {result['converged']}")
     print(f"Iterations: {result['iterations']}")
@@ -90,9 +93,9 @@ def main():
     else:
         print("  ✗ Code quality needs SIGNIFICANT improvement")
     
-    print("\n" + "="*60)
+    print("\n" + "="*SEPARATOR_WIDTH)
     print("Example completed successfully!")
-    print("="*60)
+    print("="*SEPARATOR_WIDTH)
 
 
 if __name__ == "__main__":
