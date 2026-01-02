@@ -104,8 +104,6 @@ def print_results(result: dict, log_file: Path, json_file: Path, md_file: Path):
     print("BUG FINDER RESULTS SUMMARY")
     print("=" * 60)
 
-
-
     # Note: result keys might distinguish between 'consensus' (final) and 'worker_consensus'
     # 'find_bugs_with_consensus' returns 'worker_consensus' for the worker phase.
     consensus_data = result.get("worker_consensus", result.get("consensus", {}))

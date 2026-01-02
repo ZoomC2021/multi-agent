@@ -117,7 +117,7 @@ if run_button:
                                 specific_files=specific_files,
                             ),
                         )
-                    result = future.result()
+                        result = future.result()
                     
                     # Save the result to a file so we can reload it
                     output_file = Path("bug_report.json")
@@ -156,8 +156,11 @@ else:
                 data = json.load(f)
             # Update selection to point to this new file if possible, or just use data
         except (json.JSONDecodeError, OSError) as e:
-            # Silent fail on auto-load is okay, but maybe log it?
-            pass
+             # Could not auto-load bug_report.json, user will need to select manually
+             import os
+             if os.getenv("DEBUG"):
+                 print(f"Warning: Could not auto-load bug_report.json: {e}")
+             pass
             
     if not data:
         st.info(

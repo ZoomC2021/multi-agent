@@ -165,7 +165,7 @@ def run_consensus_system(
         print("Running consensus demonstration...")
         print(f"{'=' * 60}")
 
-        # Set some initial values
+
         import random
 
         if seed is not None:
