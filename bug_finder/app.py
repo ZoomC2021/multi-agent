@@ -1,6 +1,8 @@
 import streamlit as st
 import json
+import asyncio
 from pathlib import Path
+from bug_finder.cli import find_bugs_with_consensus, get_git_changed_files, DEFAULT_WORKER_CONFIGS
 
 st.set_page_config(page_title="Bug Finder Consensus Viewer", layout="wide")
 
@@ -13,9 +15,7 @@ with st.sidebar:
     # Check local directory for JSON files
     # We check current directory and examples directory
     current_dir = Path.cwd()
-    search_paths = [current_dir]
-    if (current_dir / "examples").exists():
-        search_paths.append(current_dir / "examples")
+    search_paths = [current_dir, current_dir / "examples"]
 
     local_files = []
     for path in search_paths:
@@ -46,6 +46,94 @@ with st.sidebar:
 
     uploaded_file = st.file_uploader("Or upload a JSON report", type="json")
 
+    st.divider()
+
+    st.header("Run Analysis")
+    
+    # Target Selection
+    default_target = str(Path.cwd())
+    target_path = st.text_input("Target Path", value=default_target, help="Absolute path to file or directory to analyze")
+    diff_only = st.checkbox("Analyze Git Diff Only", value=False, help="Only analyze files changed in git")
+
+    # Model Selection
+    available_models = [cfg["model"] for cfg in DEFAULT_WORKER_CONFIGS]
+    model_labels = [f"{cfg['role']} ({cfg['model']})" for cfg in DEFAULT_WORKER_CONFIGS]
+    
+    st.subheader("Select Models")
+    selected_indices = []
+    
+    # Create checkboxes for each model
+    for i, cfg in enumerate(DEFAULT_WORKER_CONFIGS):
+        default_checked = True 
+        # Uncheck higher cost models by default if desired, or keep all checked
+        if st.checkbox(f"{cfg['role']} - {cfg['model']}", value=default_checked, key=f"model_{i}"):
+            selected_indices.append(i)
+
+    run_button = st.button("🚀 Run Analysis", type="primary", use_container_width=True)
+
+if run_button:
+    if not selected_indices:
+        st.error("Please select at least one model to run.")
+    else:
+        selected_configs = [DEFAULT_WORKER_CONFIGS[i] for i in selected_indices]
+        
+        target = Path(target_path)
+        if not target.exists():
+            st.error(f"Target path does not exist: {target_path}")
+        else:
+            specific_files = None
+            if diff_only:
+                if not target.is_dir():
+                     st.error("Git diff can only be run on a directory/repo.")
+                     st.stop()
+                     
+                with st.spinner("Detecting git changes..."):
+                    specific_files = get_git_changed_files(target)
+                
+                if not specific_files:
+                    st.warning("No git changes detected.")
+                    st.stop()
+                else:
+                    st.success(f"Found {len(specific_files)} changed files.")
+            
+            # Create a placeholder for logs
+            log_container = st.empty()
+            
+            with st.spinner(f"Running analysis on {target.name}... This may take a few minutes."):
+                try:
+                    # Run the async function
+                    # We need a new event loop policy for streamlit if it doesn't handle it well, 
+                    # but typically asyncio.run works if no other loop is running.
+                    import concurrent.futures
+
+                    # Run the async function in a separate thread to avoid event loop conflicts with Streamlit
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(
+                            asyncio.run,
+                            find_bugs_with_consensus(
+                                target_path=str(target),
+                                worker_configs=selected_configs,
+                                verbose=True,
+                                specific_files=specific_files,
+                            ),
+                        )
+                        result = future.result()
+                    
+                    # Save the result to a file so we can reload it
+                    output_file = Path("bug_report.json")
+                    with open(output_file, "w") as f:
+                        json.dump(result, f, indent=2, default=str)
+                        
+                    st.success("Analysis complete! Reloading report...")
+                    # Set the state to reload or just let the report loader pick it up
+                    # forcing a rerun might be good
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"Analysis failed: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+
 # Load data
 data = None
 
@@ -61,13 +149,28 @@ elif selected_file_path:
     except Exception as e:
         st.error(f"Error loading {selected_file_path}: {e}")
 else:
-    st.info(
-        "No report file found or selected. Please run the bug finder script first to generate a 'bug_report.json'."
-    )
-    st.code("python examples/bug_finder_example.py <path_to_code>")
-    st.stop()
-
+    # Fallback to try loading the just generated report if run just finished
+    if Path("bug_report.json").exists():
+        try:
+            with open("bug_report.json", "r") as f:
+                data = json.load(f)
+            # Update selection to point to this new file if possible, or just use data
+        except (json.JSONDecodeError, OSError) as e:
+             # Could not auto-load bug_report.json, user will need to select manually
+             import os
+             if os.getenv("DEBUG"):
+                 print(f"Warning: Could not auto-load bug_report.json: {e}")
+             pass
+            
+    if not data:
+        st.info(
+            "No report file found or selected. Please run the bug finder script first to generate a 'bug_report.json'."
+        )
+        st.code("python examples/bug_finder_example.py <path_to_code>")
+        st.stop()
+    
 if not data:
+    st.info("No report file found or selected. Use the sidebar to run a new analysis.")
     st.stop()
 
 # Display Task Info

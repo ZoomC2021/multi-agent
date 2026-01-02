@@ -59,12 +59,20 @@ class ConsensusManager:
 
         elif topology == "ring":
             # Agents are connected in a ring
-            for i, agent in enumerate(self.agents):
-                next_agent = self.agents[(i + 1) % len(self.agents)]
-                prev_agent = self.agents[(i - 1) % len(self.agents)]
-                if next_agent != agent:
-                    agent.add_neighbor(next_agent)
-                    if prev_agent != next_agent:
+            num_agents = len(self.agents)
+            if num_agents < 2:
+                # No neighbors for 0 or 1 agent
+                pass
+            else:
+                for i, agent in enumerate(self.agents):
+                    next_agent = self.agents[(i + 1) % num_agents]
+                    # Python modulo handles negative numbers correctly: -1 % N = N-1
+                    prev_agent = self.agents[(i - 1) % num_agents]
+                    
+                    # Add next and previous neighbors
+                    if next_agent != agent:
+                        agent.add_neighbor(next_agent)
+                    if prev_agent != agent and prev_agent != next_agent:
                         agent.add_neighbor(prev_agent)
 
         elif topology == "chain":
@@ -171,8 +179,10 @@ class ConsensusManager:
                 # Only if NO changes occurred (handled above) do we return True for non-numeric.
                 return False
 
-        except (TypeError, ValueError):
-            pass
+        except (TypeError, ValueError) as e:
+            # Log but don't crash on convergence check errors
+            if self.verbose:
+                print(f"Warning: Convergence check encountered error: {e}")
 
         if callback:
             callback(iteration_state)
@@ -285,7 +295,12 @@ class ConsensusManager:
         if self.verbose:
             print(f"Executing task with {len(self.agents)} agents in parallel...")
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.agents)) as executor:
+        # Calculate max_workers: ensure at least 1, but cap at a reasonable limit
+        # to prevent resource exhaustion with many agents
+        num_agents = len(self.agents)
+        max_workers = max(1, min(num_agents, 32))
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Map each agent to an execution future
             future_to_agent = {
                 executor.submit(agent.execute, task, context): agent for agent in self.agents
@@ -305,7 +320,7 @@ class ConsensusManager:
                         "agent_id": agent.agent_id,
                         "role": agent.role,
                         "error": str(e),
-                        "value": agent.value,
+                        "value": 0.0,  # Assign 0.0 on error
                     }
 
         # Reconstruct results list in original agent order
@@ -321,7 +336,8 @@ class ConsensusManager:
                 response = result.get("response", "")
                 if isinstance(response, str):
                     # Heuristic: score based on response length as a placeholder for detail/confidence
-                    new_value = min(len(response) / 50.0, 10.0)
+                    # Standardize divisor to 100.0 (matches external_agent.py)
+                    new_value = min(len(response) / 100.0, 10.0)
                 else:
                     new_value = 5.0  # Default neutral value
 
