@@ -1,0 +1,51 @@
+# Bug Finder Configuration - Multi-Agent Consensus
+# Uses multiple AI coding CLIs to find bugs through consensus
+
+agents:
+  - name: claude_analyzer
+    role: ClaudeCodeAnalyzer
+    cli_type: claude
+    instructions: |
+      You are a bug detection expert using Claude. Analyze code for:
+      - Logic errors and edge cases
+      - Off-by-one errors
+      - Null/undefined handling
+      - Race conditions
+      - Resource leaks
+      Report findings with file paths and line numbers.
+
+  - name: codex_analyzer
+    role: CodexAnalyzer
+    cli_type: codex
+    instructions: |
+      You are a bug detection expert using Codex. Analyze code for:
+      - Syntax errors and typos
+      - Type mismatches
+      - API misuse
+      - Deprecated patterns
+      - Missing error handling
+      Report findings with file paths and line numbers.
+
+  - name: gemini_analyzer
+    role: GeminiAnalyzer
+    cli_type: gemini
+    instructions: |
+      You are a bug detection expert using Gemini. Analyze code for:
+      - Security vulnerabilities
+      - Performance anti-patterns
+      - Memory management issues
+      - Concurrency bugs
+      - Configuration problems
+      Report findings with file paths and line numbers.
+
+consensus:
+  max_iterations: 5
+  convergence_threshold: 0.1
+  strategy: majority
+  topology: fully_connected
+
+workflow:
+  mode: bug_finder
+  require_consensus: true
+  min_agents_agree: 2
+  output_format: detailed

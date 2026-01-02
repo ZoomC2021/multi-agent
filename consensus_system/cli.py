@@ -13,6 +13,12 @@ from typing import Optional
 from consensus_system.agent import ConsensusAgent
 from consensus_system.manager import ConsensusManager
 from consensus_system.config import load_config, create_default_config, save_config
+from consensus_system.external_agent import ExternalCLIConsensusAgent, create_external_cli_agents
+from consensus_system.integrations import (
+    get_available_integrations,
+    CLINotFoundError,
+    APIKeyMissingError,
+)
 
 
 def create_agents_from_config(config: dict) -> list:
@@ -183,6 +189,144 @@ def init_config(output_path: str):
     print(f"Default configuration saved to: {output_path}")
 
 
+def run_external_consensus(
+    external_agents: list,
+    task: str,
+    output: Optional[str] = None,
+    workspace: str = ".",
+    verbose: bool = False
+):
+    """
+    Run consensus with external CLI agents (Claude, Codex, Gemini, Cursor).
+    
+    Args:
+        external_agents: List of CLI types to use (claude, codex, gemini, cursor)
+        task: Task to execute
+        output: Optional output file for results
+        workspace: Working directory for CLIs
+        verbose: Enable verbose output
+        
+    Raises:
+        CLINotFoundError: If any CLI is not installed
+        APIKeyMissingError: If required API keys are missing
+    """
+    import asyncio
+    
+    print(f"\n{'='*60}")
+    print(f"External CLI Consensus")
+    print(f"{'='*60}")
+    
+    # Check availability first
+    available = get_available_integrations()
+    print("\nCLI Availability:")
+    for cli_name in external_agents:
+        status = available.get(cli_name, {})
+        cli_ok = status.get('cli_available', False)
+        key_ok = status.get('api_key_set', False)
+        ready = status.get('ready', False)
+        print(f"  {cli_name}: CLI={'✓' if cli_ok else '✗'} API_KEY={'✓' if key_ok else '✗'} Ready={'✓' if ready else '✗'}")
+    
+    # Build instructions for bug/issue finding
+    instructions = f"""
+    You are a code analysis expert. Analyze the given code/files for:
+    - Bugs and potential issues
+    - Regressions or breaking changes
+    - Security vulnerabilities
+    - Performance problems
+    - Code quality issues
+    
+    Provide a detailed analysis with specific line numbers and recommendations.
+    """
+    
+    print(f"\nCreating {len(external_agents)} external CLI agents...")
+    
+    # Create agents - will fail fast if CLIs/keys missing
+    agents = create_external_cli_agents(
+        cli_types=external_agents,
+        task_instructions=instructions,
+        workspace=workspace,
+        verbose=verbose
+    )
+    
+    for agent in agents:
+        print(f"  - {agent.role} ({agent.cli_type})")
+    
+    # Create manager
+    manager = ConsensusManager(
+        agents=agents,
+        max_iterations=5,
+        convergence_threshold=0.1,
+        verbose=verbose
+    )
+    manager.setup_network(topology='fully_connected')
+    
+    print(f"\nExecuting task: {task}")
+    print(f"{'='*60}\n")
+    
+    # Execute collaborative task
+    result = manager.execute_collaborative_task(
+        task=task,
+        consensus_strategy='majority'
+    )
+    
+    # Print results
+    print(f"\n{'='*60}")
+    print("Agent Results")
+    print(f"{'='*60}")
+    
+    for agent_result in result.get('agent_results', []):
+        role = agent_result.get('role', 'Unknown')
+        cli = agent_result.get('cli', 'unknown')
+        success = agent_result.get('success', False)
+        response = str(agent_result.get('response', ''))[:500]
+        
+        print(f"\n[{role}] ({cli}) - {'SUCCESS' if success else 'FAILED'}")
+        if success:
+            print(f"{response}...")
+        else:
+            print(f"Error: {agent_result.get('error', 'Unknown error')}")
+    
+    consensus_data = result.get('consensus', {})
+    print(f"\n{'='*60}")
+    print("Consensus Result")
+    print(f"{'='*60}")
+    print(f"Converged: {consensus_data.get('converged', False)}")
+    print(f"Iterations: {consensus_data.get('iterations', 0)}")
+    print(f"Final decision score: {result.get('final_decision', 'N/A')}")
+    
+    # Save results
+    if output:
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(output_path, 'w') as f:
+            json.dump(result, f, indent=2, default=str)
+            
+        print(f"\nResults saved to: {output}")
+    
+    return result
+
+
+def list_available_clis():
+    """Print available CLI integrations."""
+    print("\nAvailable CLI Integrations:")
+    print(f"{'='*40}")
+    
+    available = get_available_integrations()
+    
+    for name, status in available.items():
+        cli_ok = status.get('cli_available', False)
+        key_ok = status.get('api_key_set', False)
+        ready = status.get('ready', False)
+        
+        status_str = "READY" if ready else ("CLI missing" if not cli_ok else "API key missing")
+        icon = "✓" if ready else "✗"
+        
+        print(f"  {icon} {name}: {status_str}")
+    
+    print()
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -236,6 +380,22 @@ Examples:
         action='store_true',
         help='Enable verbose output with detailed logging'
     )
+    run_parser.add_argument(
+        '--external-agent', '-e',
+        type=str,
+        action='append',
+        choices=['claude', 'codex', 'gemini', 'cursor'],
+        help='External CLI agent(s) to use (can specify multiple: -e claude -e codex)'
+    )
+    run_parser.add_argument(
+        '--workspace', '-w',
+        type=str,
+        default='.',
+        help='Working directory for external CLI agents'
+    )
+    
+    # List command
+    subparsers.add_parser('list', help='List available CLI integrations')
     
     # Init command
     init_parser = subparsers.add_parser('init', help='Initialize default configuration')
@@ -254,20 +414,39 @@ Examples:
         
     try:
         if args.command == 'run':
-            run_consensus_system(
-                config_path=args.config,
-                task=args.task,
-                output=args.output,
-                headless=not args.interactive
-            )
+            # Check if using external agents
+            if args.external_agent:
+                if not args.task:
+                    print("Error: --task is required when using --external-agent", file=sys.stderr)
+                    return 1
+                run_external_consensus(
+                    external_agents=args.external_agent,
+                    task=args.task,
+                    output=args.output,
+                    workspace=args.workspace,
+                    verbose=args.verbose
+                )
+            else:
+                run_consensus_system(
+                    config_path=args.config,
+                    task=args.task,
+                    output=args.output,
+                    headless=not args.interactive
+                )
         elif args.command == 'init':
             init_config(args.output)
+        elif args.command == 'list':
+            list_available_clis()
             
         return 0
         
+    except (CLINotFoundError, APIKeyMissingError) as e:
+        print(f"\nConfiguration Error: {e}", file=sys.stderr)
+        print("\nRun 'consensus-cli list' to see available CLI integrations.", file=sys.stderr)
+        return 1
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
-        if '--verbose' in sys.argv:
+        if '--verbose' in sys.argv or (hasattr(args, 'verbose') and args.verbose):
             import traceback
             traceback.print_exc()
         return 1
