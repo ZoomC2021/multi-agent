@@ -69,6 +69,13 @@ DEFAULT_WORKER_CONFIGS = [
         "role": "GeminiWorker5",
         "mode": "cli",
     },
+    {
+        "type": "amp",
+        "model": "amp-free",
+        "role": "AmpWorker6",
+        "mode": "cli",
+        "cli_mode": "free",
+    },
 ]
 
 
@@ -148,17 +155,17 @@ def get_git_changed_files(target_path: Path) -> list:
         # Handle "unborn HEAD" (new repo with no commits)
         try:
             subprocess.run(
-                ["git", "rev-parse", "--verify", "HEAD"], 
-                cwd=target_path, 
-                check=True, 
-                capture_output=True
+                ["git", "rev-parse", "--verify", "HEAD"],
+                cwd=target_path,
+                check=True,
+                capture_output=True,
             )
             base_ref = "HEAD"
         except subprocess.CalledProcessError:
             # No HEAD (new repo), invoke diff against empty tree or just use cached
             # For simplicity, we'll rely on ls-files for everything in this case or just --cached
             base_ref = "--cached"  # This compares index to working tree? No.
-            # If no HEAD, everything added is "new". 
+            # If no HEAD, everything added is "new".
             # We will use stricter diff if HEAD exists.
             base_ref = None
 
@@ -193,7 +200,7 @@ def get_git_changed_files(target_path: Path) -> list:
         # Resolve to absolute paths and verify they exist, ensuring they are within target_path
         valid_files = []
         target_path_abs = target_path.resolve()
-        
+
         for f in unique_files:
             try:
                 full_path = (target_path / f).resolve()
@@ -203,7 +210,7 @@ def get_git_changed_files(target_path: Path) -> list:
                     full_path.relative_to(target_path_abs)
                 except ValueError:
                     continue
-                    
+
                 if full_path.is_file():
                     valid_files.append(str(full_path))
             except Exception:
@@ -254,13 +261,14 @@ async def find_bugs_with_consensus(
     if worker_configs is None:
         # Filter default configs based on available CLIs if specified
         if cli_types:
-            worker_configs = [
-                cfg for cfg in DEFAULT_WORKER_CONFIGS if cfg["type"] in cli_types
-            ]
+            worker_configs = [cfg for cfg in DEFAULT_WORKER_CONFIGS if cfg["type"] in cli_types]
         else:
             worker_configs = DEFAULT_WORKER_CONFIGS
 
-    log_event(f"Available CLIs for workers: {', '.join(cli_types) if cli_types else 'Custom Config'}", log_file)
+    log_event(
+        f"Available CLIs for workers: {', '.join(cli_types) if cli_types else 'Custom Config'}",
+        log_file,
+    )
     print(f"Target: {target_path}")
     if specific_files:
         print(f"Analyzing {len(specific_files)} specific files based on criteria (e.g., git diff).")
@@ -324,8 +332,6 @@ async def find_bugs_with_consensus(
     [Brief summary of overall code health and top priorities]
     """
 
-
-
     # Orchestrator - runs after workers to synthesize results
     orchestrator_config = {
         "type": "gemini",
@@ -347,7 +353,7 @@ async def find_bugs_with_consensus(
             workspace=str(target.parent if target.is_file() else target),
             initial_value=0.0,
             verbose=verbose,
-            model=config["model"] # Pass model as kwarg which goes into cli_options
+            model=config["model"],  # Pass model as kwarg which goes into cli_options
         )
         workers.append(agent)
         log_event(f"  - {agent.role} (model: {config['model']}, mode: cli)", log_file)
