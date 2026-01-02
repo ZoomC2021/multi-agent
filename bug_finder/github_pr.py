@@ -7,10 +7,12 @@ It handles fetching PR details, diffs, reviews, comments, and checking out PR br
 """
 
 import json
+import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 
 # Custom exceptions for PR operations
@@ -232,7 +234,7 @@ def fetch_pr_diff(pr_number: int, repo: Optional[str] = None) -> str:
     return result.stdout
 
 
-def parse_pr_diff_for_files(diff: str) -> list[str]:
+def parse_pr_diff_for_files(diff: str) -> List[str]:
     """
     Extract changed file paths from diff text.
     
@@ -254,7 +256,59 @@ def parse_pr_diff_for_files(diff: str) -> list[str]:
     return files
 
 
-def fetch_pr_reviews(pr_number: int, repo: Optional[str] = None) -> list[dict]:
+def _parse_paginated_json(output: str) -> List[dict]:
+    """
+    Parse concatenated JSON arrays from gh api --paginate output.
+    
+    gh api --paginate outputs concatenated JSON arrays like: [{...}][{...}]
+    This function handles that by finding all JSON arrays and combining them.
+    
+    Args:
+        output: Raw output from gh api --paginate
+        
+    Returns:
+        Combined list of all items from all pages
+    """
+    if not output.strip():
+        return []
+    
+    # Try simple parse first (single page case)
+    try:
+        result = json.loads(output)
+        if isinstance(result, list):
+            return result
+        return [result]
+    except json.JSONDecodeError:
+        pass
+    
+    # Handle concatenated JSON arrays: [{...}][{...}]
+    items = []
+    # Match each JSON array
+    pattern = r'\[.*?\](?=\[|$)'
+    
+    # Use a more robust approach: find balanced brackets
+    depth = 0
+    start = None
+    for i, char in enumerate(output):
+        if char == '[':
+            if depth == 0:
+                start = i
+            depth += 1
+        elif char == ']':
+            depth -= 1
+            if depth == 0 and start is not None:
+                try:
+                    arr = json.loads(output[start:i+1])
+                    if isinstance(arr, list):
+                        items.extend(arr)
+                except json.JSONDecodeError:
+                    pass
+                start = None
+    
+    return items
+
+
+def fetch_pr_reviews(pr_number: int, repo: Optional[str] = None) -> List[dict]:
     """
     Fetch all review comments (review body + inline comments).
     
@@ -286,7 +340,8 @@ def fetch_pr_reviews(pr_number: int, repo: Optional[str] = None) -> list[dict]:
                 "--paginate",
                 "-f", "per_page=100"  # Fetch 100 per page
             ])
-            inline_comments = json.loads(api_result.stdout)
+            # Handle concatenated JSON from paginated output
+            inline_comments = _parse_paginated_json(api_result.stdout)
             
             # Limit the number of inline comments to prevent performance issues
             if len(inline_comments) > MAX_INLINE_COMMENTS:
@@ -321,7 +376,7 @@ def fetch_pr_reviews(pr_number: int, repo: Optional[str] = None) -> list[dict]:
     return reviews
 
 
-def fetch_pr_comments(pr_number: int, repo: Optional[str] = None) -> list[dict]:
+def fetch_pr_comments(pr_number: int, repo: Optional[str] = None) -> List[dict]:
     """
     Fetch general PR comments (issue comments, not inline code comments).
     
@@ -417,6 +472,57 @@ def checkout_pr_branch(
         raise PRCheckoutFailed(f"Unexpected error during checkout: {e}") from e
 
 
+def get_current_branch(workspace: Optional[str] = None) -> Optional[str]:
+    """
+    Get the current git branch name.
+    
+    Args:
+        workspace: Working directory
+        
+    Returns:
+        Current branch name or None if not in a git repo
+    """
+    try:
+        result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            cwd=workspace
+        )
+        if result.returncode == 0:
+            return result.stdout.strip() or None
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    return None
+
+
+def restore_branch(branch: str, workspace: Optional[str] = None) -> bool:
+    """
+    Restore to a specific git branch.
+    
+    Args:
+        branch: Branch name to checkout
+        workspace: Working directory
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    if not branch:
+        return False
+    try:
+        result = subprocess.run(
+            ["git", "checkout", branch],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=workspace
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
+
 def format_reviewer_comments_for_ai(reviews: list, comments: list) -> str:
     """
     Format existing reviewer feedback in a structured way for AI consumption.
@@ -473,8 +579,8 @@ def format_reviewer_comments_for_ai(reviews: list, comments: list) -> str:
 def format_pr_context_for_agents(
     pr_details: dict,
     pr_diff: str,
-    pr_reviews: list[dict],
-    pr_comments: list[dict],
+    pr_reviews: List[dict],
+    pr_comments: List[dict],
 ) -> str:
     """
     Compile all PR data into a formatted string for AI agents.
@@ -547,7 +653,7 @@ def format_pr_context_for_agents(
     return "\n".join(parts)
 
 
-def get_pr_changed_file_paths(pr_number: int, repo: Optional[str] = None, workspace: Optional[str] = None) -> list[str]:
+def get_pr_changed_file_paths(pr_number: int, repo: Optional[str] = None, workspace: Optional[str] = None) -> List[str]:
     """
     Get absolute paths to PR changed files in the local workspace.
     
@@ -563,13 +669,29 @@ def get_pr_changed_file_paths(pr_number: int, repo: Optional[str] = None, worksp
     files = pr_details.get("files", [])
     
     workspace_path = Path(workspace) if workspace else Path.cwd()
+    workspace_abs = workspace_path.resolve()
     
     valid_files = []
     for f in files:
         path = f.get("path", "")
         if path:
             full_path = workspace_path / path
-            if full_path.is_file():
-                valid_files.append(str(full_path.resolve()))
+            try:
+                resolved = full_path.resolve()
+                # Security check: ensure file is within workspace (prevent path traversal)
+                try:
+                    common = os.path.commonpath([str(resolved), str(workspace_abs)])
+                    if common != str(workspace_abs):
+                        # File is outside workspace directory - skip
+                        continue
+                except ValueError:
+                    # Paths on different drives (Windows)
+                    continue
+                
+                if resolved.is_file():
+                    valid_files.append(str(resolved))
+            except (OSError, ValueError):
+                # Handle path resolution errors
+                pass
     
     return valid_files

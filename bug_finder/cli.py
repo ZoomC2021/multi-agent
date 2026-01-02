@@ -341,6 +341,8 @@ async def find_bugs_with_consensus(
             format_pr_context_for_agents,
             get_pr_changed_file_paths,
             infer_current_repo,
+            get_current_branch,
+            restore_branch,
             GHCLIError,
             GHCLINotInstalled,
             GHCLINotAuthenticated,
@@ -408,8 +410,14 @@ async def find_bugs_with_consensus(
 
         # Checkout PR branch if requested
         pr_branch_checked_out = False
+        original_branch = None
         if checkout_pr_branch_flag:
             try:
+                # Save original branch to restore later
+                original_branch = get_current_branch(target_path)
+                if original_branch:
+                    log_event(f"Original branch: {original_branch}", log_file)
+                
                 print("  🔀 Checking out PR branch...")
                 checkout_result = checkout_pr_branch(pr_number, repo, target_path)
                 if checkout_result["success"]:
@@ -444,8 +452,15 @@ async def find_bugs_with_consensus(
                 from bug_finder.github_pr import parse_pr_diff_for_files
                 diff_files = parse_pr_diff_for_files(pr_diff)
                 target = Path(target_path)
-                # Include all files from diff without existence check
-                specific_files = [str((target / f).resolve()) for f in diff_files]
+                # Include all files from diff, handling potential path resolution errors
+                specific_files = []
+                for f in diff_files:
+                    try:
+                        # Don't use resolve() as file may not exist - just normalize path
+                        file_path = str((target / f).absolute())
+                        specific_files.append(file_path)
+                    except (OSError, ValueError):
+                        pass
                 print(f"  📁 Using diff-only mode: {len(specific_files)} files from PR diff")
                 if specific_files:
                     print("      (Note: Some files may not exist locally since branch wasn't checked out)")
@@ -739,6 +754,21 @@ Please synthesize these findings according to your instructions.
         result["pr_reviews"] = pr_reviews
         result["pr_comments"] = pr_comments
         result["changed_files"] = specific_files or []
+        
+        # Restore original branch if we checked out PR branch
+        if pr_branch_checked_out and original_branch:
+            try:
+                from bug_finder.github_pr import restore_branch
+                print(f"\n🔀 Restoring original branch: {original_branch}")
+                if restore_branch(original_branch, target_path):
+                    log_event(f"Restored original branch: {original_branch}", log_file)
+                    print(f"  ✅ Restored to branch: {original_branch}")
+                else:
+                    print(f"  ⚠️  Could not restore to branch: {original_branch}")
+                    print(f"      Please run 'git checkout {original_branch}' manually")
+            except Exception as e:
+                print(f"  ⚠️  Error restoring branch: {e}")
+                print(f"      Please run 'git checkout {original_branch}' manually")
 
     print(f"\nAudit log written to: {log_file}")
 
