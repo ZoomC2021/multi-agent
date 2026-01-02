@@ -283,27 +283,54 @@ def _parse_paginated_json(output: str) -> List[dict]:
     
     # Handle concatenated JSON arrays: [{...}][{...}]
     items = []
-    # Match each JSON array
-    pattern = r'\[.*?\](?=\[|$)'
     
-    # Use a more robust approach: find balanced brackets
+    # Use a bracket-balancing approach to find each JSON array
+    # Track string context to ignore brackets inside strings
     depth = 0
     start = None
+    parse_errors = 0
+    in_string = False
+    escape_next = False
+    
     for i, char in enumerate(output):
-        if char == '[':
-            if depth == 0:
-                start = i
-            depth += 1
-        elif char == ']':
-            depth -= 1
-            if depth == 0 and start is not None:
-                try:
-                    arr = json.loads(output[start:i+1])
-                    if isinstance(arr, list):
-                        items.extend(arr)
-                except json.JSONDecodeError:
-                    pass
-                start = None
+        # Handle escape sequences inside strings
+        if escape_next:
+            escape_next = False
+            continue
+        if char == '\\' and in_string:
+            escape_next = True
+            continue
+        
+        # Track string boundaries
+        if char == '"' and not escape_next:
+            in_string = not in_string
+            continue
+        
+        # Only count brackets outside of strings
+        if not in_string:
+            if char == '[':
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif char == ']':
+                depth -= 1
+                # Only process if depth is back to 0 (valid close)
+                if depth == 0 and start is not None:
+                    try:
+                        arr = json.loads(output[start:i+1])
+                        if isinstance(arr, list):
+                            items.extend(arr)
+                    except json.JSONDecodeError:
+                        parse_errors += 1
+                    start = None
+                elif depth < 0:
+                    # Reset on invalid state
+                    depth = 0
+                    start = None
+    
+    if parse_errors > 0:
+        import sys
+        print(f"Warning: Failed to parse {parse_errors} JSON array(s) from paginated output", file=sys.stderr)
     
     return items
 
@@ -681,7 +708,13 @@ def get_pr_changed_file_paths(pr_number: int, repo: Optional[str] = None, worksp
                 # Security check: ensure file is within workspace (prevent path traversal)
                 try:
                     common = os.path.commonpath([str(resolved), str(workspace_abs)])
-                    if common != str(workspace_abs):
+                    # Handle Windows case-insensitivity
+                    if os.name == 'nt':
+                        common = common.lower()
+                        workspace_check = str(workspace_abs).lower()
+                    else:
+                        workspace_check = str(workspace_abs)
+                    if common != workspace_check:
                         # File is outside workspace directory - skip
                         continue
                 except ValueError:
@@ -695,3 +728,55 @@ def get_pr_changed_file_paths(pr_number: int, repo: Optional[str] = None, worksp
                 pass
     
     return valid_files
+
+import contextlib
+
+@contextlib.contextmanager
+def manage_pr_branch(pr_number: int, repo: Optional[str], workspace: Optional[str] = None, should_checkout: bool = False):
+    """
+    Context manager to handle PR branch checkout and restoration.
+    
+    Args:
+        pr_number: PR number
+        repo: Repository owner/name
+        workspace: Workspace path
+        should_checkout: Whether to attempt checkout
+        
+    Yields:
+        Dictionary with 'success' and 'branch' keys
+    """
+    original_branch = None
+    pr_branch_checked_out = False
+    result = {"success": False, "branch": None}
+    
+    if should_checkout:
+        try:
+            original_branch = get_current_branch(workspace)
+            if original_branch:
+                print(f"  📝 Saved original branch: {original_branch}")
+            
+            checkout_res = checkout_pr_branch(pr_number, repo, workspace)
+            if checkout_res["success"]:
+                pr_branch_checked_out = True
+                result = checkout_res
+                yield result
+            else:
+                yield result
+        except Exception as e:
+            print(f"  ⚠️  Error during PR checkout setup: {e}")
+            yield result
+    else:
+        yield result
+        
+    # Restoration logic
+    if pr_branch_checked_out and original_branch:
+        try:
+            print(f"\n🔀 Restoring original branch: {original_branch}")
+            if restore_branch(original_branch, workspace):
+                print(f"  ✅ Restored to branch: {original_branch}")
+            else:
+                print(f"  ⚠️  Could not restore to branch: {original_branch}")
+                print(f"      Please run 'git checkout {original_branch}' manually")
+        except Exception as e:
+            print(f"  ⚠️  Error restoring branch: {e}")
+            print(f"      Please run 'git checkout {original_branch}' manually")

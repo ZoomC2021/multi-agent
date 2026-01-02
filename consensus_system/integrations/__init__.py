@@ -34,6 +34,7 @@ from .gemini_cli import GeminiCLIIntegration
 from .cursor_cli import CursorCLIIntegration
 from .opencode_cli import OpenCodeCLIIntegration
 from .amp_cli import AmpCLIIntegration
+from .cline_cli import ClineCLIIntegration
 
 
 __all__ = [
@@ -48,6 +49,7 @@ __all__ = [
     "CursorCLIIntegration",
     "OpenCodeCLIIntegration",
     "AmpCLIIntegration",
+    "ClineCLIIntegration",
     # Utilities
     "get_available_integrations",
     "get_integration_class",
@@ -63,6 +65,7 @@ INTEGRATION_REGISTRY: Dict[str, Type[ExternalCLIIntegration]] = {
     "cursor": CursorCLIIntegration,
     "opencode": OpenCodeCLIIntegration,
     "amp": AmpCLIIntegration,
+    "cline": ClineCLIIntegration,
 }
 
 

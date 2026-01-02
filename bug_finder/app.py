@@ -90,8 +90,8 @@ with st.sidebar:
     st.divider()
 
     # Model Selection
-    available_models = [cfg["model"] for cfg in DEFAULT_WORKER_CONFIGS]
-    model_labels = [f"{cfg['role']} ({cfg['model']})" for cfg in DEFAULT_WORKER_CONFIGS]
+    available_models = [cfg.get("model", cfg.get("type", "unknown")) for cfg in DEFAULT_WORKER_CONFIGS]
+    model_labels = [f"{cfg['role']} ({cfg.get('model', cfg.get('type', 'unknown'))})" for cfg in DEFAULT_WORKER_CONFIGS]
     
     st.subheader("Select Models")
     selected_indices = []
@@ -100,7 +100,8 @@ with st.sidebar:
     for i, cfg in enumerate(DEFAULT_WORKER_CONFIGS):
         default_checked = True 
         # Uncheck higher cost models by default if desired, or keep all checked
-        if st.checkbox(f"{cfg['role']} - {cfg['model']}", value=default_checked, key=f"model_{i}"):
+        model_label = cfg.get("model", cfg.get("type", "unknown"))
+        if st.checkbox(f"{cfg['role']} - {model_label}", value=default_checked, key=f"model_{i}"):
             selected_indices.append(i)
 
     run_button = st.button("🚀 Run Analysis", type="primary", use_container_width=True)
