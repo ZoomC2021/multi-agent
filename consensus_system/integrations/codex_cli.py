@@ -95,9 +95,15 @@ class CodexCLIIntegration(ExternalCLIIntegration):
             # Parse output based on format
             if self.output_format == "json":
                 parsed = self._parse_json_output(result.stdout)
-                # Codex may return structured response
-                response = parsed.get("result", parsed.get("message", result.stdout))
-                files_modified = parsed.get("files_modified", [])
+                # Handle case where parsed is a list (JSON array) not a dict
+                if isinstance(parsed, dict):
+                    # Codex may return structured response
+                    response = parsed.get("result", parsed.get("message", result.stdout))
+                    files_modified = parsed.get("files_modified", [])
+                else:
+                    # JSON array or other non-dict type - use raw output
+                    response = result.stdout
+                    files_modified = []
             else:
                 response = result.stdout
                 parsed = {"raw": result.stdout}

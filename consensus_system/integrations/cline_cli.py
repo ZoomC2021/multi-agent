@@ -115,9 +115,14 @@ class ClineCLIIntegration(ExternalCLIIntegration):
             # Parse output based on format
             if self.output_format == "json":
                 parsed = self._parse_json_output(result.stdout)
-                response = parsed.get(
-                    "result", parsed.get("content", parsed.get("response", result.stdout))
-                )
+                # Handle case where parsed is a list (JSON array) not a dict
+                if isinstance(parsed, dict):
+                    response = parsed.get(
+                        "result", parsed.get("content", parsed.get("response", result.stdout))
+                    )
+                else:
+                    # JSON array or other non-dict type - use raw output
+                    response = result.stdout
             else:
                 response = result.stdout
                 parsed = {"raw": result.stdout}
@@ -138,47 +143,91 @@ class ClineCLIIntegration(ExternalCLIIntegration):
         Ensure a Cline server instance is running and get its address.
 
         Parses the instance list to find a SERVING instance and stores its address.
-        If no instance is running, attempts to start one.
+        If no instance is running, attempts to start one with retries.
+
+        Raises:
+            RuntimeError: If no instance can be started after retries
         """
         import asyncio
 
-        try:
-            # Check if any instance is running
-            result = await self._run_cli(["instance", "list"])
+        max_retries = 3
+        initial_wait = 5  # seconds to wait after starting instance
 
-            if result.returncode == 0 and "SERVING" in result.stdout:
-                # Parse instance list to get address
-                # Format:  ADDRESS (ID)    │ STATUS     │ VERSION    │ ...
-                # Example: 127.0.0.1:61228 │ SERVING    │ 3.39.2     │ ...
-                address = self._parse_instance_address(result.stdout)
-                if address:
-                    self.instance_address = address
+        for attempt in range(max_retries):
+            try:
+                # Check if any instance is running
+                result = await self._run_cli(["instance", "list"])
+
+                if result.returncode == 0 and "SERVING" in result.stdout:
+                    # Parse instance list to get address
+                    address = self._parse_instance_address(result.stdout)
+                    if address:
+                        self.instance_address = address
+                        if self.verbose:
+                            print(f"[cline] Using existing instance at {address}")
+                        return
+
+                # No running instance found, try to start one
+                if self.verbose:
+                    print(f"[cline] No running instance found. Starting one (attempt {attempt + 1}/{max_retries})...")
+
+                # Start a new instance and wait for it to complete startup
+                # Use a longer timeout for instance startup
+                start_result = await asyncio.wait_for(
+                    self._run_cli(["instance", "new"]),
+                    timeout=60  # 60 seconds for instance startup
+                )
+
+                if start_result.returncode != 0:
+                    error_msg = start_result.stderr or start_result.stdout or "Unknown error"
                     if self.verbose:
-                        print(f"[cline] Using existing instance at {address}")
-                    return
+                        print(f"[cline] Instance start failed: {error_msg}")
+                    # Wait before retry
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                    continue
 
-            # No running instance found, try to start one
-            if self.verbose:
-                print("[cline] No running instance found. Starting one...")
+                # Wait for the instance to be ready
+                await asyncio.sleep(initial_wait)
 
-            # Start a new instance in background (don't await - it's long-running)
-            asyncio.create_task(self._run_cli(["instance", "new", "--verbose"]))
-            # Give it a moment to start
-            await asyncio.sleep(3)
+                # Verify the instance is now SERVING
+                result = await self._run_cli(["instance", "list"])
+                if result.returncode == 0 and "SERVING" in result.stdout:
+                    address = self._parse_instance_address(result.stdout)
+                    if address:
+                        self.instance_address = address
+                        if self.verbose:
+                            print(f"[cline] Started new instance at {address}")
+                        return
 
-            # Check again for the new instance
-            result = await self._run_cli(["instance", "list"])
-            if result.returncode == 0 and "SERVING" in result.stdout:
-                address = self._parse_instance_address(result.stdout)
-                if address:
-                    self.instance_address = address
-                    if self.verbose:
-                        print(f"[cline] Started new instance at {address}")
+                # Instance started but not serving yet, wait and retry check
+                for check in range(5):
+                    await asyncio.sleep(2)
+                    result = await self._run_cli(["instance", "list"])
+                    if result.returncode == 0 and "SERVING" in result.stdout:
+                        address = self._parse_instance_address(result.stdout)
+                        if address:
+                            self.instance_address = address
+                            if self.verbose:
+                                print(f"[cline] Instance ready at {address}")
+                            return
 
-        except Exception as e:
-            if self.verbose:
-                print(f"[cline] Warning: Could not ensure instance: {e}")
-            # Continue anyway - cline might auto-start
+            except asyncio.TimeoutError:
+                if self.verbose:
+                    print(f"[cline] Instance startup timed out (attempt {attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 ** attempt)
+            except Exception as e:
+                if self.verbose:
+                    print(f"[cline] Error ensuring instance (attempt {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 ** attempt)
+
+        # All retries exhausted
+        raise RuntimeError(
+            f"Failed to start Cline instance after {max_retries} attempts. "
+            "Please start manually with 'cline instance new' or check 'cline instance list'."
+        )
 
     def _parse_instance_address(self, output: str) -> Optional[str]:
         """

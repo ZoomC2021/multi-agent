@@ -83,8 +83,13 @@ class QwenCLIIntegration(ExternalCLIIntegration):
             # Parse output based on format
             if self.output_format == "json":
                 parsed = self._parse_json_output(result.stdout)
-                # Some CLIs put the final answer in a 'response' or 'result' field
-                response = parsed.get("response", parsed.get("result", result.stdout))
+                # Handle case where parsed is a list (JSON array) not a dict
+                if isinstance(parsed, dict):
+                    # Some CLIs put the final answer in a 'response' or 'result' field
+                    response = parsed.get("response", parsed.get("result", result.stdout))
+                else:
+                    # JSON array or other non-dict type - use raw output
+                    response = result.stdout
             else:
                 response = result.stdout
                 parsed = {"raw": result.stdout}

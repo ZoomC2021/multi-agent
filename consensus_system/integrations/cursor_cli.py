@@ -111,10 +111,15 @@ class CursorCLIIntegration(ExternalCLIIntegration):
             # Parse output based on format
             if self.output_format == "json":
                 parsed = self._parse_json_output(result.stdout)
-                # cursor-agent returns {"type":"result", "result": "..."} format
-                response = parsed.get(
-                    "result", parsed.get("content", parsed.get("response", result.stdout))
-                )
+                # Handle case where parsed is a list (JSON array) not a dict
+                if isinstance(parsed, dict):
+                    # cursor-agent returns {"type":"result", "result": "..."} format
+                    response = parsed.get(
+                        "result", parsed.get("content", parsed.get("response", result.stdout))
+                    )
+                else:
+                    # JSON array or other non-dict type - use raw output
+                    response = result.stdout
             else:
                 response = result.stdout
                 parsed = {"raw": result.stdout}

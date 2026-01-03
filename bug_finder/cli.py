@@ -50,47 +50,58 @@ from consensus_system import (
     get_available_integrations,
 )
 
+# Default timeout for worker execution (in seconds)
+# 600s (10 minutes) for large codebase analysis
+DEFAULT_WORKER_TIMEOUT = 600
+
 DEFAULT_WORKER_CONFIGS = [
     {
         "type": "cline",
         "role": "ClineWorker1",
         "mode": "cli",
+        "timeout": DEFAULT_WORKER_TIMEOUT,
     },
     {
         "type": "opencode",
         "model": "opencode/grok-code",
         "role": "OpenCodeWorker2",
         "mode": "cli",
+        "timeout": DEFAULT_WORKER_TIMEOUT,
     },
     {
         "type": "opencode",
         "model": "opencode/glm-4.7-free",
         "role": "OpenCodeWorker3",
         "mode": "cli",
+        "timeout": DEFAULT_WORKER_TIMEOUT,
     },
     {
         "type": "opencode",
         "model": "opencode/minimax-m2.1-free",
         "role": "OpenCodeWorker4",
         "mode": "cli",
+        "timeout": DEFAULT_WORKER_TIMEOUT,
     },
     {
         "type": "opencode",
         "model": "openrouter/mistralai/devstral-2512:free",
         "role": "OpenCodeDevstralWorker5",
         "mode": "cli",
+        "timeout": DEFAULT_WORKER_TIMEOUT,
     },
-    {"type": "codex", "model": "gpt-5.2-codex", "role": "CodexWorker6", "mode": "cli"},
+    {"type": "codex", "model": "gpt-5.2-codex", "role": "CodexWorker6", "mode": "cli", "timeout": DEFAULT_WORKER_TIMEOUT},
     {
         "type": "gemini",
         "model": "gemini-3-flash-preview",
         "role": "GeminiWorker7",
         "mode": "cli",
+        "timeout": DEFAULT_WORKER_TIMEOUT,
     },
     {
         "type": "qwen",
         "role": "QwenWorker8",
         "mode": "cli",
+        "timeout": DEFAULT_WORKER_TIMEOUT,
     },
 ]
 
@@ -611,6 +622,8 @@ async def find_bugs_with_consensus(
         for i, config in enumerate(worker_configs):
             # Extract model if present, otherwise use type as fallback
             model = config.get("model", config.get("type", "unknown"))
+            # Extract timeout if present, otherwise use default
+            timeout = config.get("timeout", DEFAULT_WORKER_TIMEOUT)
 
             agent = ExternalCLIConsensusAgent(
                 agent_id=f"{config['type']}_cli_agent_{i}",
@@ -621,6 +634,7 @@ async def find_bugs_with_consensus(
                 initial_value=0.0,
                 verbose=verbose,
                 model=model,  # Pass model (or type) as kwarg which goes into cli_options
+                timeout=timeout,  # Pass timeout to CLI integration
             )
             workers.append(agent)
             log_event(f"  - {agent.role} (model: {model}, mode: cli)", log_file)

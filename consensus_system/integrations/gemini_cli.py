@@ -92,8 +92,14 @@ class GeminiCLIIntegration(ExternalCLIIntegration):
             # Parse output based on format
             if self.output_format == "json":
                 parsed = self._parse_json_output(result.stdout)
-                response = parsed.get("response", parsed.get("text", result.stdout))
-                token_stats = parsed.get("usage", {})
+                # Handle case where parsed is a list (JSON array) not a dict
+                if isinstance(parsed, dict):
+                    response = parsed.get("response", parsed.get("text", result.stdout))
+                    token_stats = parsed.get("usage", {})
+                else:
+                    # JSON array or other non-dict type - use raw output
+                    response = result.stdout
+                    token_stats = {}
             else:
                 response = result.stdout
                 parsed = {"raw": result.stdout}
