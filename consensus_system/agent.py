@@ -43,8 +43,8 @@ class ConsensusAgent:
         self.value = initial_value
         
         # Validate weight
-        if not isinstance(weight, (int, float)) or weight <= 0:
-            raise ValueError("weight must be a positive number")
+        if not isinstance(weight, (int, float)) or weight < 0:
+            raise ValueError("weight must be a non-negative number")
         self.weight = weight
         
         self.llm = llm
@@ -59,8 +59,8 @@ class ConsensusAgent:
 
     def update_value(self, new_value: Any):
         """Update the agent's current value and record in history."""
-        self.history.append(self.value)
         self.value = new_value
+        self.history.append(self.value)
 
     def calculate_consensus_value(self, strategy: str = "average") -> Any:
         """

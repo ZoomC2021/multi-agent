@@ -26,13 +26,16 @@ dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
 ]
+viewer = [
+    "streamlit>=1.20.0",
+]
 
 [project.scripts]
 consensus-cli = "consensus_system.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["consensus_system*"]
+include = ["consensus_system*", "bug_finder*"]
 
 [tool.black]
 line-length = 100

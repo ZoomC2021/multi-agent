@@ -56,6 +56,7 @@ def create_agents_from_config(config: dict) -> list:
             "instructions": agent_config.get("instructions", ""),
             "initial_value": agent_config.get("initial_value", 0.0),
             "verbose": agent_config.get("verbose", True),
+            "weight": agent_config.get("weight", 1.0),
         }
 
         if agent_type == "external_cli":

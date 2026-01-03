@@ -294,10 +294,12 @@ def get_git_changed_files(target_path: Path) -> list:
         return valid_files
 
     except subprocess.CalledProcessError:
-        print(f"Warning: {target_path} is not a git repository or git error occurred.")
+        import logging
+        logging.warning(f"{target_path} is not a git repository or git error occurred.")
         return []
     except Exception as e:
-        print(f"Warning: Could not get git changes: {e}")
+        import logging
+        logging.warning(f"Could not get git changes: {e}")
         return []
 
 

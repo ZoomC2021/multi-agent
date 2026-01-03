@@ -98,6 +98,37 @@ class ConsensusManager:
             for agent in self.agents:
                 print(f"  {agent.role}: {len(agent.neighbors)} neighbors")
 
+    def _calculate_majority_vote(self, values: list) -> Optional[Any]:
+        """
+        Calculate majority vote from a list of values.
+        
+        Args:
+            values: List of values to count
+            
+        Returns:
+            The value with the highest count, or None if no valid values
+        """
+        if not values:
+            return None
+        
+        value_counts = []
+        for val in values:
+            if val is None:
+                continue
+            found = False
+            for i, (existing_val, count) in enumerate(value_counts):
+                if existing_val == val:
+                    value_counts[i] = (existing_val, count + 1)
+                    found = True
+                    break
+            if not found:
+                value_counts.append((val, 1))
+        
+        if value_counts:
+            winner = max(value_counts, key=lambda x: x[1])
+            return winner[0]
+        return None
+
     def iterate_consensus(
         self, strategy: str = "average", callback: Optional[Callable] = None
     ) -> bool:
@@ -169,6 +200,8 @@ class ConsensusManager:
             # If there are ANY non-numeric changes, we have not converged because strict equality failed
             # (checked by 'if not changes' above).
             if non_numeric_changes:
+                if callback:
+                    callback(iteration_state)
                 return False
 
             # Filter for numeric changes only
@@ -202,10 +235,13 @@ class ConsensusManager:
             # Log but don't crash on convergence check errors
             if self.verbose:
                 print(f"Warning: Convergence check encountered error: {e}")
+            if callback:
+                callback(iteration_state)
+            return False
 
+        # Fallback: call callback before returning
         if callback:
             callback(iteration_state)
-
         return False
 
     def run_consensus(
@@ -266,28 +302,7 @@ class ConsensusManager:
         
         elif strategy == "majority":
             # Majority vote
-            if final_values:
-                # Use object identity/equality for counting
-                value_counts = []
-                for val in final_values:
-                    if val is None:
-                        continue
-                    found = False
-                    for i, (existing_val, count) in enumerate(value_counts):
-                        if existing_val == val:
-                            value_counts[i] = (existing_val, count + 1)
-                            found = True
-                            break
-                    if not found:
-                        value_counts.append((val, 1))
-                
-                if value_counts:
-                    winner = max(value_counts, key=lambda x: x[1])
-                    consensus_value = winner[0]
-                else:
-                    consensus_value = None
-            else:
-                consensus_value = None
+            consensus_value = self._calculate_majority_vote(final_values)
 
         elif strategy == "weighted":
             # Weighted average
@@ -308,28 +323,7 @@ class ConsensusManager:
             # Unknown strategy, fallback to majority
             if self.verbose:
                 print(f"Warning: Unknown strategy {strategy}, falling back to majority for final value")
-            
-            if final_values:
-                value_counts = []
-                for val in final_values:
-                    if val is None:
-                        continue
-                    found = False
-                    for i, (existing_val, count) in enumerate(value_counts):
-                        if existing_val == val:
-                            value_counts[i] = (existing_val, count + 1)
-                            found = True
-                            break
-                    if not found:
-                        value_counts.append((val, 1))
-                
-                if value_counts:
-                    winner = max(value_counts, key=lambda x: x[1])
-                    consensus_value = winner[0]
-                else:
-                    consensus_value = None
-            else:
-                consensus_value = None
+            consensus_value = self._calculate_majority_vote(final_values)
 
 
         results = {

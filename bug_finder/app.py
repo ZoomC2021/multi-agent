@@ -237,8 +237,19 @@ if uploaded_file:
         st.error(f"Error loading uploaded file: {e}")
 elif selected_file_path:
     try:
-        with open(selected_file_path, "r") as f:
-            data = json.load(f)
+        # Security: Validate path is within allowed directories (prevent path traversal)
+        selected_path = Path(selected_file_path).resolve()
+        allowed_dirs = [Path.cwd().resolve(), (Path.cwd() / "examples").resolve()]
+        is_allowed = any(
+            selected_path == d or d in selected_path.parents
+            for d in allowed_dirs
+        )
+        if not is_allowed:
+            st.error("Access denied: File must be within current or examples directory")
+            data = None
+        else:
+            with open(selected_file_path, "r") as f:
+                data = json.load(f)
     except Exception as e:
         st.error(f"Error loading {selected_file_path}: {e}")
 else:

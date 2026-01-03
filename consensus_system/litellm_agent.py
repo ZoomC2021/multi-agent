@@ -112,8 +112,8 @@ class LiteLLMAgent(ConsensusAgent):
             if self.verbose:
                 print(f"[{self.role}] Error executing LiteLLM: {e}")
             response = str(error)
-            # Ensure value is 0 on error
-            self.update_value(0.0)
+            # Set value to None on error so agent is excluded from consensus
+            self.update_value(None)
 
         # Extract a quality score or metric from the response ONLY if successful
         if error is None and isinstance(response, str):
@@ -153,6 +153,7 @@ def create_litellm_agents_from_config(config: Dict[str, Any]) -> List[LiteLLMAge
             role=agent_config.get("role", "Agent"),
             instructions=agent_config.get("instructions", ""),
             initial_value=agent_config.get("initial_value", 0.0),
+            weight=agent_config.get("weight", 1.0),
             llm=agent_config.get("llm", "gpt-4"),
             verbose=True,
             tools=agent_config.get("tools", []),
