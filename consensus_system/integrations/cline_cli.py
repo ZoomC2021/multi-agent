@@ -224,10 +224,8 @@ class ClineCLIIntegration(ExternalCLIIntegration):
         """Build CLI arguments for execution."""
         args = []
 
-        # Connect to specific instance if address is known
-        # This is critical - without --address, cline tries to start a new instance
-        if self.instance_address:
-            args.extend(["--address", self.instance_address])
+        # Note: Do NOT use --address flag. Cline auto-discovers running instances.
+        # Using --address can cause hangs when connecting to existing sessions.
 
         # Add the prompt
         args.append(prompt)
@@ -248,9 +246,9 @@ class ClineCLIIntegration(ExternalCLIIntegration):
         if self.output_format in ("plain", "json", "rich"):
             args.extend(["--output-format", self.output_format])
 
-        # Verbose
-        if self.verbose:
-            args.append("--verbose")
+        # Note: Do NOT pass --verbose to cline CLI as it adds instance startup
+        # messages that overwhelm the actual response. Our wrapper's verbose
+        # logging (via print statements) works independently.
 
         # File attachments from context
         if context and "files" in context:
