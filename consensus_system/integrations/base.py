@@ -153,6 +153,9 @@ class ExternalCLIIntegration(ABC):
         Raises:
             asyncio.TimeoutError: If execution exceeds timeout
         """
+        # Build command list for CompletedProcess result
+        cmd = [self.CLI_NAME] + list(args)
+
         if self.verbose:
             import shlex
             quoted_cmd = [self.CLI_NAME] + [shlex.quote(arg) for arg in args]
@@ -205,26 +208,27 @@ class ExternalCLIIntegration(ABC):
                 stderr=stderr_data.decode(errors="replace"),
             )
         except asyncio.TimeoutError:
-            try:
-                if process:
-                    process.kill()
-                    await process.wait()  # Ensure process is reaped
-            except Exception as e:
-                # Always log this as it indicates a potential resource leak/zombie process
-                import sys
-                print(f"[{self.CLI_NAME}] ERROR: Could not clean up timed-out process: {e}", file=sys.stderr)
-                # Don't re-raise, we want the original timeout error to propagate
-
             raise asyncio.TimeoutError(f"{self.CLI_NAME} execution timed out after {self.timeout}s")
         except Exception as e:
             # Handle creation errors (e.g. file not found)
             if isinstance(e, FileNotFoundError):
                 raise CLINotFoundError(f"{self.CLI_NAME} executable not found")
             raise e
+        finally:
+            # Ensure subprocess is cleaned up in all cases
+            if process is not None and process.returncode is None:
+                try:
+                    process.kill()
+                    await process.wait()
+                except Exception as cleanup_error:
+                    import sys
+                    print(f"[{self.CLI_NAME}] Warning: Could not clean up process: {cleanup_error}", file=sys.stderr)
 
     def _parse_json_output(self, output: str) -> Any:
         """
         Parse JSON output from CLI.
+
+        Handles single-line JSON, multi-line (pretty-printed) JSON, and NDJSON.
 
         Args:
             output: Raw CLI output
@@ -232,18 +236,64 @@ class ExternalCLIIntegration(ABC):
         Returns:
             Parsed JSON as dictionary/list, or {"raw": output} if parsing fails
         """
+        # First, try parsing the entire output as JSON
         try:
             return json.loads(output)
         except json.JSONDecodeError:
-            # Try to find JSON in output (some CLIs prefix with text)
-            for line in output.split("\n"):
-                line = line.strip()
-                if line.startswith("{") or line.startswith("["):
+            pass
+
+        # Try to extract JSON using bracket-balancing for multi-line JSON
+        # This handles pretty-printed JSON that spans multiple lines
+        depth = 0
+        start = None
+        in_string = False
+        escape_next = False
+        bracket_char = None  # Track whether we're looking for {} or []
+        
+        for i, char in enumerate(output):
+            if escape_next:
+                escape_next = False
+                continue
+            if char == '\\':
+                escape_next = True
+                continue
+            if char == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+                
+            if char in '{[':
+                if depth == 0:
+                    start = i
+                    bracket_char = char
+                if (bracket_char == '{' and char == '{') or (bracket_char == '[' and char == '['):
+                    depth += 1
+                elif bracket_char is None:
+                    depth += 1
+            elif char in '}]':
+                matching = (bracket_char == '{' and char == '}') or (bracket_char == '[' and char == ']')
+                if matching or bracket_char is None:
+                    depth -= 1
+                if depth == 0 and start is not None:
                     try:
-                        return json.loads(line)
+                        result = json.loads(output[start:i+1])
+                        return result
                     except json.JSONDecodeError:
-                        continue
-            return {"raw": output}
+                        pass
+                    start = None
+                    bracket_char = None
+        
+        # Fallback: try line-by-line for simple single-line JSON
+        for line in output.split("\n"):
+            line = line.strip()
+            if line.startswith("{") or line.startswith("["):
+                try:
+                    return json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+        
+        return {"raw": output}
 
     def as_tool(self):
         """

@@ -9,6 +9,7 @@ import time
 import concurrent.futures
 import threading
 from consensus_system.agent import ConsensusAgent
+from consensus_system.utils import calculate_majority_vote
 
 
 class ConsensusManager:
@@ -280,7 +281,6 @@ class ConsensusManager:
         
         elif strategy == "majority":
             # Majority vote
-            from consensus_system.utils import calculate_majority_vote
             consensus_value = calculate_majority_vote(final_values)
 
         elif strategy == "weighted":
@@ -302,7 +302,6 @@ class ConsensusManager:
             # Unknown strategy, fallback to majority
             if self.verbose:
                 print(f"Warning: Unknown strategy {strategy}, falling back to majority for final value")
-            from consensus_system.utils import calculate_majority_vote
             consensus_value = calculate_majority_vote(final_values)
 
 
@@ -356,6 +355,11 @@ class ConsensusManager:
         max_workers = max(1, min(num_agents, 32))
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Notify that each worker is starting before submitting
+            for agent in self.agents:
+                if status_callback:
+                    status_callback(f"Worker {agent.role} starting analysis...")
+
             # Map each agent to an execution future
             future_to_agent = {
                 executor.submit(agent.execute, task, context): agent for agent in self.agents
@@ -370,7 +374,11 @@ class ConsensusManager:
                     agent_results_map[agent.agent_id] = result
                     
                     if status_callback:
-                        status_callback(f"Worker {agent.role} finished analysis.")
+                        if result.get("success", True):
+                            status_callback(f"✅ Worker {agent.role} completed successfully.")
+                        else:
+                            error = result.get("error", "Unknown error")
+                            status_callback(f"❌ Worker {agent.role} failed: {error}")
                 except Exception as e:
                     if self.verbose:
                         print(f"Error executing agent {agent.role}: {e}")
@@ -378,8 +386,11 @@ class ConsensusManager:
                         "agent_id": agent.agent_id,
                         "role": agent.role,
                         "error": str(e),
+                        "success": False,  # Mark as failed
                         "value": None,  # Assign None on error so it is ignored
                     }
+                    if status_callback:
+                        status_callback(f"❌ Worker {agent.role} failed: {e}")
 
         # Reconstruct results list in original agent order
         for agent in self.agents:
@@ -400,6 +411,15 @@ class ConsensusManager:
 
             # Ensure the result dictionary reflects the updated value
             result["value"] = new_value
+
+        # Report summary of worker results
+        succeeded = sum(1 for r in agent_results if r.get("success", True))
+        failed = len(agent_results) - succeeded
+        if status_callback:
+            if failed > 0:
+                status_callback(f"⚠️ All workers finished: {succeeded} succeeded, {failed} failed")
+            else:
+                status_callback(f"✅ All {succeeded} workers completed successfully")
 
         # Run consensus to aggregate results
         consensus_result = self.run_consensus(strategy=consensus_strategy)

@@ -181,6 +181,9 @@ if run_button:
                     # Create a placeholder for status updates
                     status_placeholder = st.empty()
                     status_placeholder.info("Initializing analysis...")
+                    
+                    # Keep track of all status messages for display
+                    status_messages = []
 
                     # Run the async function in a separate thread to avoid event loop conflicts with Streamlit
                     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -203,13 +206,16 @@ if run_button:
                         # Poll for status updates while waiting for result
                         while not future.done():
                             try:
-                                # Get all available messages but only show the last one to avoid flickering too fast
-                                last_msg = None
+                                # Get all available messages and add to our list
                                 while not status_queue.empty():
-                                    last_msg = status_queue.get_nowait()
+                                    msg = status_queue.get_nowait()
+                                    status_messages.append(msg)
                                 
-                                if last_msg:
-                                    status_placeholder.info(f"🔄 {last_msg}")
+                                # Display all messages as a running log
+                                if status_messages:
+                                    # Show all messages, one per line
+                                    display_text = "\n".join(status_messages[-20:])  # Keep last 20 to avoid too long
+                                    status_placeholder.text(display_text)
                             except queue.Empty:
                                 pass
                             
@@ -219,20 +225,36 @@ if run_button:
                         try:
                             while not status_queue.empty():
                                 msg = status_queue.get_nowait()
-                                status_placeholder.info(f"🔄 {msg}")
+                                status_messages.append(msg)
                         except queue.Empty:
                             pass
+                        
+                        # Final display of all messages
+                        if status_messages:
+                            display_text = "\n".join(status_messages[-20:])
+                            status_placeholder.text(display_text)
 
                         result = future.result()
                         
-                    status_placeholder.success("Analysis complete!")
+                    # Defensive check: ensure result is a dict before accessing keys
+                    if not isinstance(result, dict):
+                        st.error(f"Unexpected result type: {type(result)}. Expected dict.")
+                        st.stop()
+                    
+                    # Check for worker failures before showing success
+                    worker_results = result.get("worker_results", [])
+                    failed_workers = [w for w in worker_results if not w.get("success", True)]
+                    
+                    if failed_workers:
+                        status_placeholder.warning(f"Analysis complete with {len(failed_workers)} worker failure(s)!")
+                    else:
+                        status_placeholder.success("Analysis complete! Reloading report...")
                     
                     # Save the result to a file so we can reload it
                     output_file = Path("bug_report.json")
                     with open(output_file, "w") as f:
                         json.dump(result, f, indent=2, default=str)
                         
-                    st.success("Analysis complete! Reloading report...")
                     # Set the state to reload or just let the report loader pick it up
                     # forcing a rerun might be good
                     st.rerun()

@@ -244,9 +244,8 @@ def get_git_changed_files(target_path: Path) -> list:
             # No HEAD, just check cached/staged files
             cmd_diff = ["git", "diff", "--cached", "--name-only", "--relative"]
 
-        # 2. Untracked files
-        cmd_untracked = ["git", "ls-files", "--others", "--exclude-standard", "--relative"]
-        cmd_ignored = ["git", "ls-files", "--others", "--ignored", "--exclude-standard", "--relative"]
+        # 2. Untracked files (note: ls-files doesn't support --relative flag)
+        cmd_untracked = ["git", "ls-files", "--others", "--exclude-standard"]
 
         changed_files = []
 
@@ -721,10 +720,10 @@ async def find_bugs_with_consensus(
         # PHASE 1: Workers analyze code in parallel
         # ========================================
         print(f"\n{'=' * 60}")
-        print("PHASE 1: Worker agents analyzing code...")
+        print(f"PHASE 1: {len(workers)} worker agents analyzing code...")
         print(f"{'=' * 60}")
         if status_callback:
-            status_callback("Starting Phase 1: Worker agents analyzing code...")
+            status_callback(f"Starting Phase 1: {len(workers)} worker agents analyzing code...")
         log_event("PHASE 1: WORKER ANALYSIS", log_file)
 
         worker_manager = ConsensusManager(
@@ -739,10 +738,23 @@ async def find_bugs_with_consensus(
             status_callback=status_callback,
         )
 
+        # Log worker results and track failures
         log_event("WORKER RESPONSES:", log_file)
+        failed_workers = []
         for agent_res in worker_results.get("agent_results", []):
             log_event(f"\n--- {agent_res.get('role')} ---", log_file)
-            log_event(f"Response:\n{agent_res.get('response')}", log_file)
+            if agent_res.get("success", True):
+                log_event(f"Response:\n{agent_res.get('response')}", log_file)
+            else:
+                failed_workers.append(agent_res)
+                log_event(f"FAILED: {agent_res.get('error', 'Unknown error')}", log_file)
+
+        # Report any failures
+        if failed_workers:
+            print(f"\n⚠️  {len(failed_workers)} worker(s) failed:")
+            for w in failed_workers:
+                print(f"   - {w.get('role')}: {w.get('error', 'Unknown error')}")
+            log_event(f"WORKER FAILURES: {len(failed_workers)}", log_file)
 
         # ========================================
         # PHASE 2: Orchestrator synthesizes results
