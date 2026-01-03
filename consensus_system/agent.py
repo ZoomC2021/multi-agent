@@ -5,6 +5,7 @@ Implements individual agents with consensus capabilities for the multi-agent sys
 """
 
 from typing import Dict, List, Any, Optional, cast, Union
+from collections import deque
 
 
 import threading
@@ -55,7 +56,7 @@ class ConsensusAgent:
         self.verbose = verbose
         self.max_history_len = max_history_len
         self.neighbors: List["ConsensusAgent"] = []
-        self.history: List[Any] = [initial_value] if initial_value is not None else []
+        self.history: deque = deque([initial_value] if initial_value is not None else [], maxlen=max_history_len)
         self._lock = threading.Lock()
 
     def add_neighbor(self, agent: "ConsensusAgent"):
@@ -68,10 +69,6 @@ class ConsensusAgent:
         with self._lock:
             self.value = new_value
             self.history.append(self.value)
-            
-            # Prune history if it exceeds limit
-            if len(self.history) > self.max_history_len:
-                self.history = self.history[-self.max_history_len :]
 
     def calculate_consensus_value(self, strategy: str = "average") -> Any:
         """
@@ -146,7 +143,11 @@ class ConsensusAgent:
 
                 if total_weight > 0:
                     return numerator / total_weight
-                return self.value
+                
+                # If total weight is 0, return current value if valid, or None
+                return self.value if self.value is not None else None
+
+        return self.value
 
     def consensus_update(self, strategy: str = "average") -> Any:
         """

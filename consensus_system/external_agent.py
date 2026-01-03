@@ -46,6 +46,7 @@ class ExternalCLIConsensusAgent(ConsensusAgent):
         initial_value: Optional[Any] = None,
         weight: float = 1.0,  # Added weight parameter
         verbose: bool = False,
+        max_history_len: int = 100,
         **cli_options,
     ):
         """
@@ -59,6 +60,7 @@ class ExternalCLIConsensusAgent(ConsensusAgent):
             workspace: Working directory for CLI operations
             initial_value: Initial value for consensus
             verbose: Enable verbose output
+            max_history_len: Maximum history length to keep
             **cli_options: Additional options passed to the CLI integration
 
         Raises:
@@ -74,6 +76,7 @@ class ExternalCLIConsensusAgent(ConsensusAgent):
             weight=weight,
             llm=f"external:{cli_type}",  # Mark as external CLI
             verbose=verbose,
+            max_history_len=max_history_len,
         )
 
         self.cli_type = cli_type.lower()
@@ -99,6 +102,11 @@ class ExternalCLIConsensusAgent(ConsensusAgent):
         if verbose:
             print(f"[{role}] Initialized with {cli_type} CLI")
 
+        # Initialize persistent executor to avoid thread churn
+        # This fixes the race condition/resource exhaustion issue where a new event loop/thread 
+        # was created for every execution.
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"{agent_id}_exec")
+
     def execute(self, task: str, context: Optional[Dict] = None) -> Dict[str, Any]:
         """
         Execute a task synchronously (wraps async execute).
@@ -117,10 +125,11 @@ class ExternalCLIConsensusAgent(ConsensusAgent):
 
         if loop and loop.is_running():
             # If we are in an event loop, we must run this in a separate thread
+            # If we are in an event loop, we must run this in a separate thread
             # with its own event loop to avoid blocking the current one
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(self._run_isolated_async, task, context)
-                return future.result()
+            # Use the persistent executor
+            future = self._executor.submit(self._run_isolated_async, task, context)
+            return future.result()
         else:
             # If no event loop is running, we can just run it directly
             return asyncio.run(self.execute_async(task, context))
@@ -160,14 +169,10 @@ class ExternalCLIConsensusAgent(ConsensusAgent):
         response = result.get("response", "")
         success = result.get("success", False)
 
-        if success and response:
-            # Use response quality as consensus value
-            # More detailed responses indicate higher confidence
-            quality_score = min(len(response) / 100.0, 10.0)
-            self.update_value(quality_score)
-        else:
-            # Failed execution gets low score
-            self.update_value(0.0)
+        if not success:
+            # Failed execution gets None value to be excluded from consensus
+            # (Standardized error handling: None = ignore / failure)
+            self.update_value(None)
 
         agent_result = {
             "agent_id": self.agent_id,

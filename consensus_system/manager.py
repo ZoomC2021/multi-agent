@@ -43,6 +43,14 @@ class ConsensusManager:
         self.consensus_history: List[Dict[str, Any]] = []
         self._lock = threading.Lock()
 
+        # Enforce unique agent IDs to prevent silent data loss / overwrites
+        ids = [agent.agent_id for agent in agents]
+        if len(ids) != len(set(ids)):
+            from collections import Counter
+            duplicates = [id for id, count in Counter(ids).items() if count > 1]
+            raise ValueError(f"Duplicate agent IDs found: {duplicates}. IDs must be unique.")
+
+
     def setup_network(self, topology: str = "fully_connected"):
         """
         Set up the agent communication network.
@@ -53,6 +61,10 @@ class ConsensusManager:
         Raises:
             ValueError: If topology is unknown
         """
+        # Clear existing neighbors first
+        for agent in self.agents:
+            agent.neighbors.clear()
+
         if topology == "fully_connected":
             # Each agent is connected to all other agents
             for agent in self.agents:
@@ -100,19 +112,6 @@ class ConsensusManager:
             for agent in self.agents:
                 print(f"  {agent.role}: {len(agent.neighbors)} neighbors")
 
-    def _calculate_majority_vote(self, values: list) -> Optional[Any]:
-        """
-        Calculate majority vote from a list of values.
-        
-        Args:
-            values: List of values to count
-            
-        Returns:
-            The value with the highest count, or None if no valid values
-        """
-        from consensus_system.utils import calculate_majority_vote
-        return calculate_majority_vote(values)
-
     def iterate_consensus(
         self, strategy: str = "average", callback: Optional[Callable] = None
     ) -> bool:
@@ -126,101 +125,102 @@ class ConsensusManager:
         Returns:
             True if converged, False otherwise
         """
-        # Handle empty agent list
-        if not self.agents:
-            if self.verbose:
-                print("No agents available for consensus iteration")
-            return False
+        with self._lock:
+            # Handle empty agent list
+            if not self.agents:
+                if self.verbose:
+                    print("No agents available for consensus iteration")
+                return False
 
-        # Calculate new values for all agents first (Simultaneous Update / Jacobi method)
-        # This prevents order-dependent bias where early-updated agents influence later ones in the same round
-        new_values_map = {}
-        for agent in self.agents:
-            # Use agent_id as key to avoid object identity issues
-            new_values_map[agent.agent_id] = agent.calculate_consensus_value(strategy)
-
-        # Apply updates
-        changes = []
-        for agent in self.agents:
-            if agent.agent_id in new_values_map:
-                new_val = new_values_map[agent.agent_id]
-                old_val = agent.value
-                if new_val != old_val:
-                    agent.update_value(new_val)
-                    changes.append((old_val, new_val))
-
-        # Record iteration state
-        iteration_state = {
-            "iteration": self.iteration_count,
-            "values": {agent.agent_id: agent.value for agent in self.agents},
-            "timestamp": time.time(),
-        }
-        self.consensus_history.append(iteration_state)
-
-        if self.verbose:
-            print(f"Iteration {self.iteration_count}:")
+            # Calculate new values for all agents first (Simultaneous Update / Jacobi method)
+            # This prevents order-dependent bias where early-updated agents influence later ones in the same round
+            new_values_map = {}
             for agent in self.agents:
-                print(f"  {agent.role}: {agent.value}")
+                # Use agent_id as key to avoid object identity issues
+                new_values_map[agent.agent_id] = agent.calculate_consensus_value(strategy)
 
-        # Check convergence
-        # We consider it converged if no values changed significantly
-        if not changes:
+            # Apply updates
+            changes = []
+            for agent in self.agents:
+                if agent.agent_id in new_values_map:
+                    new_val = new_values_map[agent.agent_id]
+                    old_val = agent.value
+                    if new_val != old_val:
+                        agent.update_value(new_val)
+                        changes.append((old_val, new_val))
+
+            # Record iteration state
+            iteration_state = {
+                "iteration": self.iteration_count,
+                "values": {agent.agent_id: agent.value for agent in self.agents},
+                "timestamp": time.time(),
+            }
+            self.consensus_history.append(iteration_state)
+
             if self.verbose:
-                print("Converged! No values changed.")
-            if callback:
-                callback(iteration_state)
-            return True
+                print(f"Iteration {self.iteration_count}:")
+                for agent in self.agents:
+                    print(f"  {agent.role}: {agent.value}")
 
-        # Check numeric convergence threshold if changes occurred
-        try:
-            # Check if we have any non-numeric changes
-            non_numeric_changes = [
-                (old, new)
-                for old, new in changes
-                if not (isinstance(new, (int, float)) and not isinstance(new, bool))
-                or not (isinstance(old, (int, float)) and not isinstance(old, bool))
-            ]
+            # Check convergence
+            # We consider it converged if no values changed significantly
+            if not changes:
+                if self.verbose:
+                    print("Converged! No values changed.")
+                if callback:
+                    callback(iteration_state)
+                return True
 
-            # If there are ANY non-numeric changes, we have not converged because strict equality failed
-            # (checked by 'if not changes' above).
-            if non_numeric_changes:
+            # Check numeric convergence threshold if changes occurred
+            try:
+                # Check if we have any non-numeric changes
+                non_numeric_changes = [
+                    (old, new)
+                    for old, new in changes
+                    if not (isinstance(new, (int, float)) and not isinstance(new, bool))
+                    or not (isinstance(old, (int, float)) and not isinstance(old, bool))
+                ]
+
+                # If there are ANY non-numeric changes, we have not converged because strict equality failed
+                # (checked by 'if not changes' above).
+                if non_numeric_changes:
+                    if callback:
+                        callback(iteration_state)
+                    return False
+
+                # Filter for numeric changes only
+                numeric_changes = [
+                    abs(new - old)
+                    for old, new in changes
+                    if isinstance(new, (int, float))
+                    and isinstance(old, (int, float))
+                    and not isinstance(new, bool)
+                    and not isinstance(old, bool)
+                ]
+
+                if numeric_changes:
+                    max_change = max(numeric_changes)
+                    converged = max_change < self.convergence_threshold
+
+                    if self.verbose and converged:
+                        print(f"Converged! Max change: {max_change}")
+
+                    if callback:
+                        callback(iteration_state)
+
+                    return converged
+
                 if callback:
                     callback(iteration_state)
                 return False
 
-            # Filter for numeric changes only
-            numeric_changes = [
-                abs(new - old)
-                for old, new in changes
-                if isinstance(new, (int, float))
-                and isinstance(old, (int, float))
-                and not isinstance(new, bool)
-                and not isinstance(old, bool)
-            ]
-
-            if numeric_changes:
-                max_change = max(numeric_changes)
-                converged = max_change < self.convergence_threshold
-
-                if self.verbose and converged:
-                    print(f"Converged! Max change: {max_change}")
-
+            except (TypeError, ValueError) as e:
+                # Log but don't crash on convergence check errors
+                if self.verbose:
+                    print(f"Warning: Convergence check encountered error: {e}")
                 if callback:
                     callback(iteration_state)
-
-                return converged
-
-            if callback:
-                callback(iteration_state)
-            return False
-
-        except (TypeError, ValueError) as e:
-            # Log but don't crash on convergence check errors
-            if self.verbose:
-                print(f"Warning: Convergence check encountered error: {e}")
-            if callback:
-                callback(iteration_state)
-            return False
+                return False
 
     def run_consensus(
         self, strategy: str = "average", callback: Optional[Callable] = None
@@ -280,7 +280,8 @@ class ConsensusManager:
         
         elif strategy == "majority":
             # Majority vote
-            consensus_value = self._calculate_majority_vote(final_values)
+            from consensus_system.utils import calculate_majority_vote
+            consensus_value = calculate_majority_vote(final_values)
 
         elif strategy == "weighted":
             # Weighted average
@@ -301,7 +302,8 @@ class ConsensusManager:
             # Unknown strategy, fallback to majority
             if self.verbose:
                 print(f"Warning: Unknown strategy {strategy}, falling back to majority for final value")
-            consensus_value = self._calculate_majority_vote(final_values)
+            from consensus_system.utils import calculate_majority_vote
+            consensus_value = calculate_majority_vote(final_values)
 
 
         results = {
@@ -384,21 +386,13 @@ class ConsensusManager:
             result = agent_results_map.get(agent.agent_id, {})
             agent_results.append(result)
 
-            # Extract consensus value from the result if available, or calculate fallback
+            # Extract consensus value from the result if available
             new_value = result.get("value")
             success = result.get("success", True)  # Default to True for agents that don't provide it
 
             if not success:
                 # For failed agents, use None to ensure they are excluded from consensus
                 new_value = None
-            elif new_value is None:
-                # Fallback to score based on response length ONLY if successful
-                response = result.get("response", "")
-                if isinstance(response, str) and response:
-                    # Heuristic: score based on response length as a placeholder for detail/confidence
-                    new_value = min(len(response) / 100.0, 10.0)
-                else:
-                    new_value = 0.0
 
             if new_value != agent.value:
                 with self._lock:

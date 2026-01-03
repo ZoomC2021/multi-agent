@@ -60,6 +60,20 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(config, dict):
         raise ValueError("Configuration must be a dictionary")
 
+    # Validate and set defaults for consensus section early
+    # Handle case where key exists but value is None (empty section in YAML)
+    if config.get("consensus") is None:
+        config["consensus"] = {}
+
+    consensus = config["consensus"]
+    if not isinstance(consensus, dict):
+        raise ValueError("'consensus' section must be a dictionary")
+
+    consensus.setdefault("max_iterations", 10)
+    consensus.setdefault("convergence_threshold", 0.01)
+    consensus.setdefault("strategy", "average")
+    consensus.setdefault("topology", "fully_connected")
+
     # Validate agents section
     if "agents" not in config:
         raise ValueError("Configuration must include 'agents' section")
@@ -98,7 +112,7 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
         if "initial_value" in agent:
             val = agent["initial_value"]
             # Only force numeric for average/weighted strategies
-            strategy = config.get("consensus", {}).get("strategy", "average")
+            strategy = consensus.get("strategy", "average")
             if strategy in ["average", "weighted"]:
                 if not isinstance(val, (int, float)) or isinstance(val, bool):
                      raise ValueError(f"Agent {i} 'initial_value' must be a non-boolean number for '{strategy}' strategy")
@@ -108,21 +122,7 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
             if not isinstance(agent["weight"], (int, float)):
                 raise ValueError(f"Agent {i} 'weight' must be a number")
             if agent["weight"] < 0:
-                raise ValueError(f"Agent {i} 'weight' must be non-negative")
-
-    # Validate and set defaults for consensus section
-    # Handle case where key exists but value is None (empty section in YAML)
-    if config.get("consensus") is None:
-        config["consensus"] = {}
-
-    consensus = config["consensus"]
-    if not isinstance(consensus, dict):
-        raise ValueError("'consensus' section must be a dictionary")
-
-    consensus.setdefault("max_iterations", 10)
-    consensus.setdefault("convergence_threshold", 0.01)
-    consensus.setdefault("strategy", "average")
-    consensus.setdefault("topology", "fully_connected")
+                raise ValueError(f"Agent {i} 'weight' must non-negative")
 
     # Validate consensus values
     if not isinstance(consensus["max_iterations"], int) or consensus["max_iterations"] <= 0:
@@ -130,9 +130,10 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
 
     if (
         not isinstance(consensus["convergence_threshold"], (int, float))
-        or consensus["convergence_threshold"] <= 1e-6
+        or consensus["convergence_threshold"] <= 1e-9
+        or consensus["convergence_threshold"] >= 1.0
     ):
-        raise ValueError("'convergence_threshold' must be a positive number")
+        raise ValueError("'convergence_threshold' must be a positive number between 1e-9 and 1.0")
 
     valid_strategies = ["average", "majority", "weighted"]
     if consensus["strategy"] not in valid_strategies:

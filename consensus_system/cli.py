@@ -8,7 +8,7 @@ import argparse
 import sys
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
 
 # Load environment variables from .env file
 try:
@@ -68,6 +68,7 @@ def create_agents_from_config(config: dict) -> list:
             "initial_value": agent_config.get("initial_value", 0.0),
             "verbose": agent_config.get("verbose", True),
             "weight": agent_config.get("weight", 1.0),
+            "max_history_len": agent_config.get("max_history_len", 100),
         }
 
         if agent_type == "external_cli":
@@ -223,7 +224,7 @@ def run_consensus_system(
         return result
 
 
-def init_config(output_path: str):
+def init_config(output_path: str) -> None:
     """
     Initialize a default configuration file.
 
@@ -241,7 +242,7 @@ def run_external_consensus(
     output: Optional[str] = None,
     workspace: str = ".",
     verbose: bool = False,
-):
+) -> Dict[str, Any]:
     """
     Run consensus with external CLI agents (Claude, Codex, Gemini, Cursor).
 

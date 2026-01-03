@@ -274,21 +274,15 @@ def get_git_changed_files(target_path: Path) -> list:
         for f in unique_files:
             try:
                 full_path = (target_path / f).resolve()
+                
                 # Security check: Ensure file is inside the target directory (prevent path traversal)
-                # Use os.path.commonpath for robust security check
+                # Use strict path resolution and relative_to check
                 try:
-                    common = os.path.commonpath([str(full_path), str(target_path_abs)])
-                    # Handle Windows case-insensitivity
-                    if os.name == "nt":
-                        common = common.lower()
-                        target_check = str(target_path_abs).lower()
-                    else:
-                        target_check = str(target_path_abs)
-                    if common != target_check:
-                        # File is outside target directory
-                        continue
+                    # Check if the resolved path is relative to the resolved target path
+                    # This raises ValueError if full_path is not inside target_path_abs
+                    full_path.relative_to(target_path_abs)
                 except ValueError:
-                    # Paths on different drives (Windows) or other path issues
+                    # File is outside target directory
                     continue
 
                 if full_path.is_file():

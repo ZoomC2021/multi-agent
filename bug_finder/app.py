@@ -170,10 +170,13 @@ if run_button:
                     import time
 
                     # Create a queue for status updates
-                    status_queue = queue.Queue()
+                    status_queue = queue.Queue(maxsize=100)
                     
                     def status_callback(msg):
-                        status_queue.put(msg)
+                        try:
+                            status_queue.put_nowait(msg)
+                        except queue.Full:
+                            pass # Drop if full to prevent blocking
 
                     # Create a placeholder for status updates
                     status_placeholder = st.empty()

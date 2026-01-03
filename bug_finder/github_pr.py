@@ -672,20 +672,14 @@ def get_pr_changed_file_paths(pr_number: int, repo: Optional[str] = None, worksp
             full_path = workspace_path / path
             try:
                 resolved = full_path.resolve()
+                
                 # Security check: ensure file is within workspace (prevent path traversal)
                 try:
-                    common = os.path.commonpath([str(resolved), str(workspace_abs)])
-                    # Handle Windows case-insensitivity
-                    if os.name == 'nt':
-                        common = common.lower()
-                        workspace_check = str(workspace_abs).lower()
-                    else:
-                        workspace_check = str(workspace_abs)
-                    if common != workspace_check:
-                        # File is outside workspace directory - skip
-                        continue
+                    # Check if the resolved path is relative to the resolved workspace path
+                    # This raises ValueError if resolved is not inside workspace_abs
+                    resolved.relative_to(workspace_abs)
                 except ValueError:
-                    # Paths on different drives (Windows)
+                    # File is outside workspace directory - skip
                     continue
                 
                 if resolved.is_file():

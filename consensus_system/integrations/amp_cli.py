@@ -5,6 +5,7 @@ Wraps the `amp` CLI for use in the consensus system.
 """
 
 import logging
+import json
 from typing import Any, Dict, List, Optional
 
 from .base import ExternalCLIIntegration
@@ -105,21 +106,50 @@ class AmpCLIIntegration(ExternalCLIIntegration):
             # Parse output based on format
             if self.output_format == "json":
                 # We used --stream-json, so output should be NDJSON
-                # We'll try to collect it, or just return raw if complex
+                # Parse each line as a JSON object
+                json_objects = []
+                raw_text_accumulated = []
+                
                 try:
-                    # Attempt to parse as single JSON if possible (sometimes it's just one object)
-                    # or list of objects
-                    if result.stdout.strip().startswith("{"):
-                        # It might be NDJSON, so wrap in list or parse last line?
-                        # For safety, let's treat it as text/raw unless we have specific parsing need for Amp
-                        # Amp stream-json is "Claude Code-compatible stream JSON"
-                        # We'll rely on base parsing which tries to find JSON.
-                        parsed = self._parse_json_output(result.stdout)
-                        response = parsed.get("content", parsed.get("text", result.stdout))
+                    # Split by newline and filter empty lines
+                    lines = [line for line in result.stdout.split('\n') if line.strip()]
+                    
+                    for line in lines:
+                        try:
+                            obj = json.loads(line)
+                            json_objects.append(obj)
+                            
+                            # Accumulate text content if present (common in streaming responses)
+                            # Handle different potential formats (Claude-like, standard, etc.)
+                            if isinstance(obj, dict):
+                                content = obj.get("content") or obj.get("text") or obj.get("delta", {}).get("text")
+                                if content and isinstance(content, str):
+                                    raw_text_accumulated.append(content)
+                                    
+                        except json.JSONDecodeError:
+                            # If a line isn't JSON, just ignore or log it
+                            continue
+                            
+                    if json_objects:
+                        # If we successfully parsed JSON objects
+                        parsed = json_objects
+                        # If we accumulated text, use that as response
+                        if raw_text_accumulated:
+                             response = "".join(raw_text_accumulated)
+                        else:
+                             # Fallback: try to extract from the last object if no text accumulated
+                             last_obj = json_objects[-1]
+                             if isinstance(last_obj, dict):
+                                 response = last_obj.get("content", last_obj.get("text", str(last_obj)))
+                             else:
+                                 response = str(last_obj)
                     else:
-                        response = result.stdout
+                        # Fallback for failed parsing or no JSON found
                         parsed = {"raw": result.stdout}
+                        response = result.stdout
+                        
                 except Exception:
+                    # General safety net
                     response = result.stdout
                     parsed = {"raw": result.stdout}
             else:

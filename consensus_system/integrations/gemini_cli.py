@@ -23,7 +23,7 @@ class GeminiCLIIntegration(ExternalCLIIntegration):
     """
 
     CLI_NAME = "gemini"
-    API_KEY_ENV_VAR = "GEMINI_CLI_API_KEY"  # Use distinct var for CLI if needed, but not required
+    API_KEY_ENV_VAR = "GEMINI_API_KEY"  # Standardized to GEMINI_API_KEY
     INSTALL_HINT = "npm install -g @google/gemini-cli or pip install gemini-cli"
     REQUIRE_API_KEY = False  # Gemini CLI handles its own auth
 

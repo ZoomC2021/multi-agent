@@ -32,6 +32,7 @@ class LiteLLMAgent(ConsensusAgent):
         llm: str = "gpt-4",
         verbose: bool = False,
         tools: Optional[List] = None,
+        max_history_len: int = 100,
     ):
         """
         Initialize a LiteLLM-backed consensus agent.
@@ -47,6 +48,7 @@ class LiteLLMAgent(ConsensusAgent):
             weight=weight,
             llm=llm,
             verbose=verbose,
+            max_history_len=max_history_len,
         )
 
         self.tools = tools or []
@@ -105,10 +107,8 @@ class LiteLLMAgent(ConsensusAgent):
             # Set value to None on error so agent is excluded from consensus
             self.update_value(None)
 
-        # Extract a quality score or metric from the response ONLY if successful
+        # Extract success status
         success = error is None
-        if success and isinstance(response, str):
-            self.update_value(min(len(response) / 100.0, 10.0))
 
         result = {
             "agent_id": self.agent_id,
