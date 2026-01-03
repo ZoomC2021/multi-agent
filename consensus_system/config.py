@@ -95,8 +95,13 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
         agent.setdefault("initial_value", 0.0)
 
         # Validate initial_value type if provided
-        if "initial_value" in agent and not isinstance(agent["initial_value"], (int, float)):
-            raise ValueError(f"Agent {i} 'initial_value' must be a number")
+        if "initial_value" in agent:
+            val = agent["initial_value"]
+            # Only force numeric for average/weighted strategies
+            strategy = config.get("consensus", {}).get("strategy", "average")
+            if strategy in ["average", "weighted"]:
+                if not isinstance(val, (int, float)) or isinstance(val, bool):
+                     raise ValueError(f"Agent {i} 'initial_value' must be a non-boolean number for '{strategy}' strategy")
 
         # Validate weight if present (for weighted consensus strategy)
         if "weight" in agent:

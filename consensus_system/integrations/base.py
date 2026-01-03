@@ -78,6 +78,13 @@ class ExternalCLIIntegration(ABC):
             CLINotFoundError: If CLI is not found in PATH
             APIKeyMissingError: If required API key is not set (only if REQUIRE_API_KEY=True)
         """
+        # Check workspace existence
+        if not os.path.exists(self.workspace):
+            try:
+                os.makedirs(self.workspace, exist_ok=True)
+            except Exception as e:
+                raise RuntimeError(f"Could not create workspace directory {self.workspace}: {e}")
+
         # Check CLI availability
         if not self.CLI_NAME:
              raise ValueError("CLI_NAME must be defined in subclass")
@@ -154,7 +161,9 @@ class ExternalCLIIntegration(ABC):
         cmd = [self.CLI_NAME] + args
 
         if self.verbose:
-            print(f"[{self.CLI_NAME}] Running: {' '.join(cmd)}")
+            import shlex
+            quoted_cmd = [self.CLI_NAME] + [shlex.quote(arg) for arg in args]
+            print(f"[{self.CLI_NAME}] Running: {' '.join(quoted_cmd)}")
 
         # Initialize process to None to avoid UnboundLocalError
         process = None
@@ -188,8 +197,11 @@ class ExternalCLIIntegration(ABC):
                 if process:
                     process.kill()
                     await process.wait()  # Ensure process is reaped
-            except Exception:
-                pass  # Process might be gone already
+            except Exception as e:
+                # Always log this as it indicates a potential resource leak/zombie process
+                import sys
+                print(f"[{self.CLI_NAME}] ERROR: Could not clean up timed-out process: {e}", file=sys.stderr)
+                # Don't re-raise, we want the original timeout error to propagate
 
             raise asyncio.TimeoutError(f"{self.CLI_NAME} execution timed out after {self.timeout}s")
         except Exception as e:

@@ -35,6 +35,7 @@ from .cursor_cli import CursorCLIIntegration
 from .opencode_cli import OpenCodeCLIIntegration
 from .amp_cli import AmpCLIIntegration
 from .cline_cli import ClineCLIIntegration
+from .qwen_cli import QwenCLIIntegration
 
 
 __all__ = [
@@ -50,6 +51,7 @@ __all__ = [
     "OpenCodeCLIIntegration",
     "AmpCLIIntegration",
     "ClineCLIIntegration",
+    "QwenCLIIntegration",
     # Utilities
     "get_available_integrations",
     "get_integration_class",
@@ -66,6 +68,7 @@ INTEGRATION_REGISTRY: Dict[str, Type[ExternalCLIIntegration]] = {
     "opencode": OpenCodeCLIIntegration,
     "amp": AmpCLIIntegration,
     "cline": ClineCLIIntegration,
+    "qwen": QwenCLIIntegration,
 }
 
 
@@ -85,12 +88,15 @@ def get_available_integrations() -> Dict[str, Dict[str, bool]]:
 
     for name, cls in INTEGRATION_REGISTRY.items():
         cli_available = shutil.which(cls.CLI_NAME) is not None
-        api_key_set = cls.API_KEY_ENV_VAR is None or bool(os.getenv(cls.API_KEY_ENV_VAR))
+        
+        # Check if API key is set OR if it's not strictly required
+        api_key_set = bool(os.getenv(cls.API_KEY_ENV_VAR)) if cls.API_KEY_ENV_VAR else True
+        api_key_ok = api_key_set or not cls.REQUIRE_API_KEY
 
         result[name] = {
             "cli_available": cli_available,
             "api_key_set": api_key_set,
-            "ready": cli_available and api_key_set,
+            "ready": cli_available and api_key_ok,
         }
 
     return result

@@ -87,6 +87,11 @@ DEFAULT_WORKER_CONFIGS = [
         "role": "GeminiWorker7",
         "mode": "cli",
     },
+    {
+        "type": "qwen",
+        "role": "QwenWorker8",
+        "mode": "cli",
+    },
 ]
 
 # PR-specific worker instructions
@@ -240,7 +245,8 @@ def get_git_changed_files(target_path: Path) -> list:
             cmd_diff = ["git", "diff", "--cached", "--name-only", "--relative"]
 
         # 2. Untracked files
-        cmd_untracked = ["git", "ls-files", "--others", "--exclude-standard"]
+        cmd_untracked = ["git", "ls-files", "--others", "--exclude-standard", "--relative"]
+        cmd_ignored = ["git", "ls-files", "--others", "--ignored", "--exclude-standard", "--relative"]
 
         changed_files = []
 
@@ -482,8 +488,8 @@ async def find_bugs_with_consensus(
                     specific_files = []
                     for f in diff_files:
                         try:
-                            # Don't use resolve() as file may not exist - just normalize path
-                            file_path = str((target / f).absolute())
+                            # Use resolve() for security - absolute() does not resolve '..' components
+                            file_path = str((target / f).resolve())
                             specific_files.append(file_path)
                         except (OSError, ValueError):
                             pass
@@ -678,16 +684,19 @@ async def find_bugs_with_consensus(
             except (OSError, UnicodeDecodeError) as e:
                 context["error"] = f"Could not read file: {e}"
         else:
-            # For directories, provide a file listing
+            # For directories, provide a limited file listing for context
             try:
-                files = [
-                    str(p.relative_to(target))
-                    for p in target.glob("**/*")
-                    if p.is_file() and ".git" not in p.parts
-                ]
-                context["file_listing"] = ", ".join(files[:50])
-                if len(files) > 50:
-                    context["file_listing"] += f" (and {len(files) - 50} more)"
+                files = []
+                # Use rglob with a limit to avoid performance issues on large repos
+                for p in target.rglob("*"):
+                    if p.is_file() and ".git" not in p.parts:
+                        files.append(str(p.relative_to(target)))
+                        if len(files) >= 50:
+                            break
+                
+                context["file_listing"] = ", ".join(files)
+                if len(files) >= 50:
+                    context["file_listing"] += " (and more...)"
             except Exception as e:
                 context["error"] = f"Could not list directory: {e}"
 
@@ -865,9 +874,8 @@ def main():
     # Handle available CLIs command which doesn't fit argparse well if we want it as a separate mode
     # But simplicity: if no args, we default to cwd.
 
-    target_path = Path(args.path).absolute()
-
-    # Check if we should list available CLIs (maybe if a flag or special command, but let's stick to standard)
+    # Use resolve() for security - absolute() does not resolve '..' components
+    target_path = Path(args.path).resolve()
 
     specific_files = None
 

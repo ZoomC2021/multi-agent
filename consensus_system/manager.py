@@ -40,6 +40,8 @@ class ConsensusManager:
         self.verbose = verbose
         self.iteration_count = 0
         self.consensus_history: List[Dict[str, Any]] = []
+        import threading
+        self._lock = threading.Lock()
 
     def setup_network(self, topology: str = "fully_connected"):
         """
@@ -108,26 +110,8 @@ class ConsensusManager:
         Returns:
             The value with the highest count, or None if no valid values
         """
-        if not values:
-            return None
-        
-        value_counts = []
-        for val in values:
-            if val is None:
-                continue
-            found = False
-            for i, (existing_val, count) in enumerate(value_counts):
-                if existing_val == val:
-                    value_counts[i] = (existing_val, count + 1)
-                    found = True
-                    break
-            if not found:
-                value_counts.append((val, 1))
-        
-        if value_counts:
-            winner = max(value_counts, key=lambda x: x[1])
-            return winner[0]
-        return None
+        from consensus_system.utils import calculate_majority_vote
+        return calculate_majority_vote(values)
 
     def iterate_consensus(
         self, strategy: str = "average", callback: Optional[Callable] = None
@@ -225,11 +209,10 @@ class ConsensusManager:
                     callback(iteration_state)
 
                 return converged
-            
-            # If we are here, it means 'changes' was not empty, but we found no non-numeric changes
-            # AND no numeric changes. This shouldn't theoretically happen given the logic above,
-            # but implies no significant change.
-            return True
+
+            if callback:
+                callback(iteration_state)
+            return False
 
         except (TypeError, ValueError) as e:
             # Log but don't crash on convergence check errors
@@ -239,10 +222,10 @@ class ConsensusManager:
                 callback(iteration_state)
             return False
 
-        # Fallback: call callback before returning
+        # No non-numeric changes and no numeric changes found
         if callback:
             callback(iteration_state)
-        return False
+        return True
 
     def run_consensus(
         self, strategy: str = "average", callback: Optional[Callable] = None
@@ -408,19 +391,23 @@ class ConsensusManager:
 
             # Extract consensus value from the result if available, or calculate fallback
             new_value = result.get("value")
+            success = result.get("success", True)  # Default to True for agents that don't provide it
 
-            if new_value is None:
-                # Fallback to None if no explicit value is provided
+            if not success:
+                # For failed agents, use None to ensure they are excluded from consensus
+                new_value = None
+            elif new_value is None:
+                # Fallback to score based on response length ONLY if successful
                 response = result.get("response", "")
                 if isinstance(response, str) and response:
                     # Heuristic: score based on response length as a placeholder for detail/confidence
-                    # Standardize divisor to 100.0 (matches external_agent.py)
                     new_value = min(len(response) / 100.0, 10.0)
                 else:
-                    new_value = None  # Default to None so it's ignored in consensus
+                    new_value = 0.0
 
             if new_value != agent.value:
-                agent.update_value(new_value)
+                with self._lock:
+                    agent.update_value(new_value)
 
             # Ensure the result dictionary reflects the updated value
             result["value"] = new_value

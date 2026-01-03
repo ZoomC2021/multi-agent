@@ -21,6 +21,8 @@ This system implements an iterative consensus mechanism where multiple AI agents
 ### Prerequisites
 
 - Python 3.8 or higher
+- Node.js v20.0 or higher (required for external CLI agents like `claude`)
+- GitHub CLI (`gh`) (required for PR review mode)
 - `make` (optional, but recommended)
 
 ### Quick Install (Recommended)

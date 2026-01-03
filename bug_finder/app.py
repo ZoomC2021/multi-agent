@@ -67,9 +67,8 @@ with st.sidebar:
     pr_number_input = st.number_input(
         "PR Number", 
         min_value=1, 
-        value=None, 
+        value=1, 
         step=1,
-        placeholder="Enter PR number",
         help="GitHub PR number to review"
     )
     pr_repo_input = st.text_input(
@@ -240,10 +239,15 @@ elif selected_file_path:
         # Security: Validate path is within allowed directories (prevent path traversal)
         selected_path = Path(selected_file_path).resolve()
         allowed_dirs = [Path.cwd().resolve(), (Path.cwd() / "examples").resolve()]
-        is_allowed = any(
-            selected_path == d or d in selected_path.parents
-            for d in allowed_dirs
-        )
+        is_allowed = False
+        try:
+            is_allowed = any(selected_path.is_relative_to(d) for d in allowed_dirs)
+        except (AttributeError, ValueError):
+            # Fallback for Python versions < 3.9 or other path issues
+            is_allowed = any(
+                selected_path == d or d in selected_path.parents
+                for d in allowed_dirs
+            )
         if not is_allowed:
             st.error("Access denied: File must be within current or examples directory")
             data = None

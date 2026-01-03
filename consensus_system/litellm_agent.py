@@ -35,17 +35,10 @@ class LiteLLMAgent(ConsensusAgent):
     ):
         """
         Initialize a LiteLLM-backed consensus agent.
-
-        Args:
-            agent_id: Unique identifier for the agent
-            role: Role/name of the agent
-            instructions: Instructions/prompt for the agent
-            initial_value: Initial state/value for consensus
-            weight: Voting weight for weighted consensus (default: 1.0)
-            llm: Language model to use (e.g., "gpt-4", "gemini/gemini-1.5-pro")
-            verbose: Enable verbose logging
-            tools: Optional list of tools for the agent
         """
+        if not LITELLM_AVAILABLE:
+            raise RuntimeError("LiteLLM is not installed. Install with: pip install litellm")
+
         super().__init__(
             agent_id=agent_id,
             role=role,
@@ -57,9 +50,6 @@ class LiteLLMAgent(ConsensusAgent):
         )
 
         self.tools = tools or []
-
-        if not LITELLM_AVAILABLE:
-            raise RuntimeError("LiteLLM is not installed. Install with: pip install litellm")
 
         if self.verbose:
             print(f"[{self.role}] LiteLLM agent initialized with model: {self.llm}")
@@ -116,7 +106,8 @@ class LiteLLMAgent(ConsensusAgent):
             self.update_value(None)
 
         # Extract a quality score or metric from the response ONLY if successful
-        if error is None and isinstance(response, str):
+        success = error is None
+        if success and isinstance(response, str):
             self.update_value(min(len(response) / 100.0, 10.0))
 
         result = {
@@ -126,7 +117,11 @@ class LiteLLMAgent(ConsensusAgent):
             "response": response,
             "value": self.value,
             "context": context or {},
+            "success": success,
         }
+
+        if not success:
+            result["error"] = str(error)
 
         if self.verbose:
             response_preview = str(result.get("response", ""))[:100]

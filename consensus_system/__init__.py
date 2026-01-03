@@ -16,6 +16,7 @@ from consensus_system.integrations import (
     CodexCLIIntegration,
     GeminiCLIIntegration,
     CursorCLIIntegration,
+    QwenCLIIntegration,
 )
 
 
@@ -39,4 +40,5 @@ __all__ = [
     "CodexCLIIntegration",
     "GeminiCLIIntegration",
     "CursorCLIIntegration",
+    "QwenCLIIntegration",
 ]

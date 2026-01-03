@@ -24,6 +24,7 @@ class ConsensusAgent:
         weight: float = 1.0,
         llm: str = "gpt-4",
         verbose: bool = False,
+        max_history_len: int = 100,
     ):
         """
         Initialize a consensus agent.
@@ -36,6 +37,7 @@ class ConsensusAgent:
             weight: Voting weight for weighted consensus (default: 1.0)
             llm: Language model to use (default: gpt-4)
             verbose: Enable verbose logging
+            max_history_len: Maximum number of history items to keep (default: 100)
         """
         self.agent_id = agent_id
         self.role = role
@@ -49,6 +51,7 @@ class ConsensusAgent:
         
         self.llm = llm
         self.verbose = verbose
+        self.max_history_len = max_history_len
         self.neighbors: List["ConsensusAgent"] = []
         self.history: List[Any] = [initial_value] if initial_value is not None else []
 
@@ -61,6 +64,10 @@ class ConsensusAgent:
         """Update the agent's current value and record in history."""
         self.value = new_value
         self.history.append(self.value)
+        
+        # Prune history if it exceeds limit
+        if len(self.history) > self.max_history_len:
+            self.history = self.history[-self.max_history_len :]
 
     def calculate_consensus_value(self, strategy: str = "average") -> Any:
         """
@@ -100,53 +107,14 @@ class ConsensusAgent:
 
         elif strategy == "majority":
             # Majority voting (for categorical values)
+            from consensus_system.utils import calculate_majority_vote
+            
             all_values = []
             if self.value is not None:
                 all_values.append(self.value)
             all_values.extend(neighbor_values)
 
-            if not all_values:
-                return self.value
-
-            # Use dictionary for O(n) counting of hashable values, 
-            # with fallback for unhashable values
-            counts: Dict[Any, int] = {}
-            unhashable_counts = [] # List of [value, count]
-            
-            for val in all_values:
-                try:
-                    counts[val] = counts.get(val, 0) + 1
-                except TypeError:
-                    # Handle unhashable values
-                    found = False
-                    for item in unhashable_counts:
-                        if item[0] == val:
-                            item[1] += 1
-                            found = True
-                            break
-                    if not found:
-                        unhashable_counts.append([val, 1])
-            
-            # Combine counts and find winner
-            if not counts and not unhashable_counts:
-                return self.value
-                
-            winner_val = None
-            max_count = -1
-            
-            # Check hashable counts
-            for val, count in counts.items():
-                if count > max_count:
-                    max_count = count
-                    winner_val = val
-            
-            # Check unhashable counts
-            for val, count in unhashable_counts:
-                if count > max_count:
-                    max_count = count
-                    winner_val = val
-                    
-            return winner_val
+            return calculate_majority_vote(all_values)
 
         elif strategy == "weighted":
             # Weighted average consensus
