@@ -47,11 +47,22 @@ def create_agents_from_config(config: dict) -> list:
     # Use config.get() to handle missing agents key gracefully
     agent_configs = config.get("agents", [])
     
+    seen_ids = set()
+    
     for agent_config in agent_configs:
         agent_type = agent_config.get("type", "llm")
         
+        # Ensure unique agent ID
+        base_id = agent_config.get("name", "unknown")
+        agent_id = base_id
+        counter = 1
+        while agent_id in seen_ids:
+            agent_id = f"{base_id}_{counter}"
+            counter += 1
+        seen_ids.add(agent_id)
+        
         common_args = {
-            "agent_id": agent_config.get("name", "unknown"),
+            "agent_id": agent_id,
             "role": agent_config.get("role", "Agent"),
             "instructions": agent_config.get("instructions", ""),
             "initial_value": agent_config.get("initial_value", 0.0),

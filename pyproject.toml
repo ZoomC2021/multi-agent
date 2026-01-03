@@ -17,6 +17,7 @@ dependencies = [
     "pyyaml>=6.0",
     "typing-extensions>=4.0.0",
     "python-dotenv>=1.0.0",
+    "streamlit>=1.20.0",
 ]
 
 [project.optional-dependencies]
@@ -25,9 +26,6 @@ dev = [
     "pytest-cov>=4.0.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
-]
-viewer = [
-    "streamlit>=1.20.0",
 ]
 
 [project.scripts]

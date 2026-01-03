@@ -7,6 +7,8 @@ Implements individual agents with consensus capabilities for the multi-agent sys
 from typing import Dict, List, Any, Optional, cast, Union
 
 
+import threading
+
 class ConsensusAgent:
     """
     An agent that participates in iterative consensus with other agents.
@@ -54,6 +56,7 @@ class ConsensusAgent:
         self.max_history_len = max_history_len
         self.neighbors: List["ConsensusAgent"] = []
         self.history: List[Any] = [initial_value] if initial_value is not None else []
+        self._lock = threading.Lock()
 
     def add_neighbor(self, agent: "ConsensusAgent"):
         """Add a neighboring agent for consensus communication."""
@@ -62,12 +65,13 @@ class ConsensusAgent:
 
     def update_value(self, new_value: Any):
         """Update the agent's current value and record in history."""
-        self.value = new_value
-        self.history.append(self.value)
-        
-        # Prune history if it exceeds limit
-        if len(self.history) > self.max_history_len:
-            self.history = self.history[-self.max_history_len :]
+        with self._lock:
+            self.value = new_value
+            self.history.append(self.value)
+            
+            # Prune history if it exceeds limit
+            if len(self.history) > self.max_history_len:
+                self.history = self.history[-self.max_history_len :]
 
     def calculate_consensus_value(self, strategy: str = "average") -> Any:
         """
@@ -79,66 +83,70 @@ class ConsensusAgent:
         Returns:
             Calculated consensus value
         """
-        if not self.neighbors:
-            return self.value
+        with self._lock:  # type: ignore
+            if strategy not in {"average", "majority", "weighted"}:
+                raise ValueError(f"Unknown consensus strategy: {strategy}")
 
-        # Get all valid (non-None) neighbor values
-        neighbor_values = [n.value for n in self.neighbors if n.value is not None]
+            if not self.neighbors:
+                return self.value
 
-        if strategy == "average":
-            # Average consensus (for numeric values, excluding booleans)
-            # Filter neighbor values to include only numeric types (excluding booleans)
-            numeric_neighbor_values: List[Union[int, float]] = [
-                v
-                for v in neighbor_values
-                if isinstance(v, (int, float)) and not isinstance(v, bool)
-            ]
+            # Get all valid (non-None) neighbor values
+            neighbor_values = [n.value for n in self.neighbors if n.value is not None]
 
-            # Check if self value is numeric (excluding booleans)
-            self_numeric = isinstance(self.value, (int, float)) and not isinstance(self.value, bool)
+            if strategy == "average":
+                # Average consensus (for numeric values, excluding booleans)
+                # Filter neighbor values to include only numeric types (excluding booleans)
+                numeric_neighbor_values: List[Union[int, float]] = [
+                    v
+                    for v in neighbor_values
+                    if isinstance(v, (int, float)) and not isinstance(v, bool)
+                ]
 
-            all_numeric_values: List[Union[int, float]] = []
-            if self_numeric:
-                all_numeric_values.append(cast(Union[int, float], self.value))
-            all_numeric_values.extend(numeric_neighbor_values)
+                # Check if self value is numeric (excluding booleans)
+                self_numeric = isinstance(self.value, (int, float)) and not isinstance(self.value, bool)
 
-            if all_numeric_values:
-                return sum(all_numeric_values) / len(all_numeric_values)
+                all_numeric_values: List[Union[int, float]] = []
+                if self_numeric:
+                    all_numeric_values.append(cast(Union[int, float], self.value))
+                all_numeric_values.extend(numeric_neighbor_values)
 
-        elif strategy == "majority":
-            # Majority voting (for categorical values)
-            from consensus_system.utils import calculate_majority_vote
-            
-            all_values = []
-            if self.value is not None:
-                all_values.append(self.value)
-            all_values.extend(neighbor_values)
+                if all_numeric_values:
+                    return sum(all_numeric_values) / len(all_numeric_values)
+                return self.value
 
-            return calculate_majority_vote(all_values)
+            elif strategy == "majority":
+                # Majority voting (for categorical values)
+                from consensus_system.utils import calculate_majority_vote
+                
+                all_values = []
+                if self.value is not None:
+                    all_values.append(self.value)
+                all_values.extend(neighbor_values)
 
-        elif strategy == "weighted":
-            # Weighted average consensus
-            # Includes self weight and neighbor weights
+                return calculate_majority_vote(all_values)
 
-            numerator = 0.0
-            total_weight = 0.0
+            elif strategy == "weighted":
+                # Weighted average consensus
+                # Includes self weight and neighbor weights
 
-            # Process self
-            if isinstance(self.value, (int, float)) and not isinstance(self.value, bool):
-                numerator += float(self.value) * self.weight
-                total_weight += self.weight
+                numerator = 0.0
+                total_weight = 0.0
 
-            # Process neighbors
-            for neighbor in self.neighbors:
-                val = neighbor.value
-                if val is not None and isinstance(val, (int, float)) and not isinstance(val, bool):
-                    numerator += float(val) * neighbor.weight
-                    total_weight += neighbor.weight
+                # Process self
+                if isinstance(self.value, (int, float)) and not isinstance(self.value, bool):
+                    numerator += float(self.value) * self.weight
+                    total_weight += self.weight
 
-            if total_weight > 0:
-                return numerator / total_weight
+                # Process neighbors
+                for neighbor in self.neighbors:
+                    val = neighbor.value
+                    if val is not None and isinstance(val, (int, float)) and not isinstance(val, bool):
+                        numerator += float(val) * neighbor.weight
+                        total_weight += neighbor.weight
 
-        return self.value
+                if total_weight > 0:
+                    return numerator / total_weight
+                return self.value
 
     def consensus_update(self, strategy: str = "average") -> Any:
         """

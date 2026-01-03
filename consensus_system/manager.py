@@ -7,6 +7,7 @@ Orchestrates multiple agents to reach consensus through iterative collaboration.
 from typing import List, Dict, Any, Optional, Callable, Union
 import time
 import concurrent.futures
+import threading
 from consensus_system.agent import ConsensusAgent
 
 
@@ -40,7 +41,6 @@ class ConsensusManager:
         self.verbose = verbose
         self.iteration_count = 0
         self.consensus_history: List[Dict[str, Any]] = []
-        import threading
         self._lock = threading.Lock()
 
     def setup_network(self, topology: str = "fully_connected"):
@@ -221,11 +221,6 @@ class ConsensusManager:
             if callback:
                 callback(iteration_state)
             return False
-
-        # No non-numeric changes and no numeric changes found
-        if callback:
-            callback(iteration_state)
-        return True
 
     def run_consensus(
         self, strategy: str = "average", callback: Optional[Callable] = None
