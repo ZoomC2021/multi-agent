@@ -20,7 +20,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 
 # Load environment variables from .env file
 try:
@@ -298,6 +298,7 @@ async def find_bugs_with_consensus(
     include_pr_comments: bool = True,
     include_pr_reviews: bool = True,
     checkout_pr_branch_flag: bool = True,
+    status_callback: Optional[Callable[[str], None]] = None,
 ) -> dict:
     """
     Find bugs using consensus from multiple AI coding agents.
@@ -321,6 +322,9 @@ async def find_bugs_with_consensus(
     log_file = Path("bug_finder_execution.log")
     if log_file.exists():
         log_file.unlink()  # Start fresh
+
+    if status_callback:
+        status_callback(f"Starting analysis on {target_path}...")
 
     log_event(f"STARTING BUG ANALYSIS ON: {target_path}", log_file)
 
@@ -358,6 +362,8 @@ async def find_bugs_with_consensus(
         )
 
         log_event(f"PR REVIEW MODE: PR #{pr_number}", log_file)
+        if status_callback:
+            status_callback(f"Enter PR Review Mode: Analyzing PR #{pr_number}")
         print(f"\n🔍 PR Review Mode: Analyzing PR #{pr_number}")
 
         # Check gh CLI
@@ -377,6 +383,8 @@ async def find_bugs_with_consensus(
 
         # Fetch PR details
         try:
+            if status_callback:
+                status_callback("Fetching PR details...")
             print("  📥 Fetching PR details...")
             pr_details = fetch_pr_details(pr_number, repo)
             log_event(f"PR Title: {pr_details.get('title', 'Unknown')}", log_file)
@@ -388,6 +396,8 @@ async def find_bugs_with_consensus(
 
         # Fetch PR diff
         try:
+            if status_callback:
+                status_callback("Fetching PR diff...")
             print("  📥 Fetching PR diff...")
             pr_diff = fetch_pr_diff(pr_number, repo)
             log_event(f"PR Diff size: {len(pr_diff)} chars", log_file)
@@ -398,6 +408,8 @@ async def find_bugs_with_consensus(
         # Fetch PR reviews
         if include_pr_reviews:
             try:
+                if status_callback:
+                    status_callback("Fetching PR reviews...")
                 print("  📥 Fetching PR reviews...")
                 pr_reviews = fetch_pr_reviews(pr_number, repo)
                 log_event(f"PR Reviews: {len(pr_reviews)}", log_file)
@@ -408,6 +420,8 @@ async def find_bugs_with_consensus(
         # Fetch PR comments
         if include_pr_comments:
             try:
+                if status_callback:
+                    status_callback("Fetching PR comments...")
                 print("  📥 Fetching PR comments...")
                 pr_comments = fetch_pr_comments(pr_number, repo)
                 log_event(f"PR Comments: {len(pr_comments)}", log_file)
@@ -572,6 +586,8 @@ async def find_bugs_with_consensus(
     
         # Create worker agents
         workers = []
+        if status_callback:
+            status_callback("Initializing worker agents...")
         log_event("INITIALIZING WORKER AGENTS:", log_file)
         for i, config in enumerate(worker_configs):
             # Extract model if present, otherwise use type as fallback
@@ -597,6 +613,9 @@ async def find_bugs_with_consensus(
         if not model.startswith("gemini/"):
             model = f"gemini/{model}"
     
+        if status_callback:
+            status_callback("Initializing orchestrator agent...")
+
         orchestrator = LiteLLMAgent(
             agent_id="orchestrator_api_agent",
             role=orchestrator_config["role"],
@@ -670,6 +689,8 @@ async def find_bugs_with_consensus(
         print(f"\n{'=' * 60}")
         print("PHASE 1: Worker agents analyzing code...")
         print(f"{'=' * 60}")
+        if status_callback:
+            status_callback("Starting Phase 1: Worker agents analyzing code...")
         log_event("PHASE 1: WORKER ANALYSIS", log_file)
 
         worker_manager = ConsensusManager(
@@ -678,7 +699,10 @@ async def find_bugs_with_consensus(
         worker_manager.setup_network(topology="fully_connected")
 
         worker_results = worker_manager.execute_collaborative_task(
-            task=task, consensus_strategy="majority", context=context
+            task=task, 
+            consensus_strategy="majority", 
+            context=context,
+            status_callback=status_callback
         )
 
         log_event("WORKER RESPONSES:", log_file)
@@ -692,6 +716,8 @@ async def find_bugs_with_consensus(
         print(f"\n{'=' * 60}")
         print("PHASE 2: Orchestrator synthesizing findings...")
         print(f"{'=' * 60}")
+        if status_callback:
+            status_callback("Phase 2: Orchestrator synthesizing findings...")
         log_event("PHASE 2: ORCHESTRATOR SYNTHESIS", log_file)
 
         # Format worker results for the orchestrator

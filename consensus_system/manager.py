@@ -282,7 +282,11 @@ class ConsensusManager:
         return results
 
     def execute_collaborative_task(
-        self, task: str, consensus_strategy: str = "majority", context: Optional[Dict] = None
+        self, 
+        task: str, 
+        consensus_strategy: str = "majority", 
+        context: Optional[Dict] = None,
+        status_callback: Optional[Callable[[str], None]] = None
     ) -> Dict[str, Any]:
         """
         Execute a collaborative task with all agents and reach consensus.
@@ -324,6 +328,9 @@ class ConsensusManager:
                 try:
                     result = future.result()
                     agent_results_map[agent.agent_id] = result
+                    
+                    if status_callback:
+                        status_callback(f"Worker {agent.role} finished analysis.")
                 except Exception as e:
                     if self.verbose:
                         print(f"Error executing agent {agent.role}: {e}")

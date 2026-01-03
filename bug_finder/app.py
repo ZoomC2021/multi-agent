@@ -154,6 +154,18 @@ if run_button:
                     # We need a new event loop policy for streamlit if it doesn't handle it well, 
                     # but typically asyncio.run works if no other loop is running.
                     import concurrent.futures
+                    import queue
+                    import time
+
+                    # Create a queue for status updates
+                    status_queue = queue.Queue()
+                    
+                    def status_callback(msg):
+                        status_queue.put(msg)
+
+                    # Create a placeholder for status updates
+                    status_placeholder = st.empty()
+                    status_placeholder.info("Initializing analysis...")
 
                     # Run the async function in a separate thread to avoid event loop conflicts with Streamlit
                     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -169,9 +181,36 @@ if run_button:
                                 include_pr_comments=include_pr_comments,
                                 include_pr_reviews=include_pr_reviews,
                                 checkout_pr_branch_flag=checkout_branch,
+                                status_callback=status_callback,
                             ),
                         )
+                        
+                        # Poll for status updates while waiting for result
+                        while not future.done():
+                            try:
+                                # Get all available messages but only show the last one to avoid flickering too fast
+                                last_msg = None
+                                while not status_queue.empty():
+                                    last_msg = status_queue.get_nowait()
+                                
+                                if last_msg:
+                                    status_placeholder.info(f"🔄 {last_msg}")
+                            except queue.Empty:
+                                pass
+                            
+                            time.sleep(0.1)
+                        
+                        # Process any remaining messages
+                        try:
+                            while not status_queue.empty():
+                                msg = status_queue.get_nowait()
+                                status_placeholder.info(f"🔄 {msg}")
+                        except queue.Empty:
+                            pass
+
                         result = future.result()
+                        
+                    status_placeholder.success("Analysis complete!")
                     
                     # Save the result to a file so we can reload it
                     output_file = Path("bug_report.json")
