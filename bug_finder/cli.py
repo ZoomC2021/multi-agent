@@ -20,7 +20,16 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Optional, Callable, Union
+
+
+def _safe_relative_to(path: Union[str, Path], base: Path) -> str:
+    """Safely calculate relative path, falling back to string representation on failure."""
+    try:
+        return str(Path(path).relative_to(base))
+    except (ValueError, TypeError):
+        return str(path)
+
 
 # Load environment variables from .env file
 try:
@@ -30,7 +39,7 @@ try:
 except ImportError:
     pass
 
-# Note: LiteLLM expects GOOGLE_API_KEY for Gemini. 
+# Note: LiteLLM expects GOOGLE_API_KEY for Gemini.
 # Users should ensure GOOGLE_API_KEY is set in .env.
 # We avoid modifying os.environ globally here to prevent side effects.
 
@@ -65,11 +74,17 @@ DEFAULT_WORKER_CONFIGS = [
         "role": "OpenCodeWorker4",
         "mode": "cli",
     },
-    {"type": "codex", "model": "gpt-5.2-codex", "role": "CodexWorker5", "mode": "cli"},
+    {
+        "type": "opencode",
+        "model": "openrouter/mistralai/devstral-2512:free",
+        "role": "OpenCodeDevstralWorker5",
+        "mode": "cli",
+    },
+    {"type": "codex", "model": "gpt-5.2-codex", "role": "CodexWorker6", "mode": "cli"},
     {
         "type": "gemini",
         "model": "gemini-3-flash-preview",
-        "role": "GeminiWorker6",
+        "role": "GeminiWorker7",
         "mode": "cli",
     },
 ]
@@ -258,7 +273,7 @@ def get_git_changed_files(target_path: Path) -> list:
                 try:
                     common = os.path.commonpath([str(full_path), str(target_path_abs)])
                     # Handle Windows case-insensitivity
-                    if os.name == 'nt':
+                    if os.name == "nt":
                         common = common.lower()
                         target_check = str(target_path_abs).lower()
                     else:
@@ -337,6 +352,7 @@ async def find_bugs_with_consensus(
 
     # Context manager for branch management (default to dummy for non-PR)
     import contextlib
+
     branch_manager = contextlib.nullcontext({"success": True})
 
     # Handle PR review mode
@@ -347,17 +363,11 @@ async def find_bugs_with_consensus(
             fetch_pr_diff,
             fetch_pr_reviews,
             fetch_pr_comments,
-            checkout_pr_branch,
             format_pr_context_for_agents,
             get_pr_changed_file_paths,
             infer_current_repo,
-            get_current_branch,
-            restore_branch,
             GHCLIError,
-            GHCLINotInstalled,
-            GHCLINotAuthenticated,
             PRNotFound,
-            PRCheckoutFailed,
             manage_pr_branch,
         )
 
@@ -450,6 +460,7 @@ async def find_bugs_with_consensus(
                     except GHCLIError:
                         # Fall back to parsing diff with existence check
                         from bug_finder.github_pr import parse_pr_diff_for_files
+
                         diff_files = parse_pr_diff_for_files(pr_diff)
                         target = Path(target_path)
                         specific_files = [
@@ -462,6 +473,7 @@ async def find_bugs_with_consensus(
                     # Branch NOT checked out - use diff-only mode without file existence checks
                     # This avoids the race condition of checking files on wrong branch
                     from bug_finder.github_pr import parse_pr_diff_for_files
+
                     diff_files = parse_pr_diff_for_files(pr_diff)
                     target = Path(target_path)
                     # Include all files from diff, handling potential path resolution errors
@@ -475,7 +487,9 @@ async def find_bugs_with_consensus(
                             pass
                     print(f"  📁 Using diff-only mode: {len(specific_files)} files from PR diff")
                     if specific_files:
-                        print("      (Note: Some files may not exist locally since branch wasn't checked out)")
+                        print(
+                            "      (Note: Some files may not exist locally since branch wasn't checked out)"
+                        )
 
             review_mode = "github_pr"
             print()
@@ -485,41 +499,45 @@ async def find_bugs_with_consensus(
         if cli_types is None and worker_configs is None:
             available = get_available_integrations()
             cli_types = [name for name, status in available.items() if status.get("ready")]
-    
+
         if worker_configs is None:
             # Filter default configs based on available CLIs if specified
             if cli_types:
                 worker_configs = [cfg for cfg in DEFAULT_WORKER_CONFIGS if cfg["type"] in cli_types]
             else:
                 worker_configs = DEFAULT_WORKER_CONFIGS
-    
+
         log_event(
             f"Available CLIs for workers: {', '.join(cli_types) if cli_types else 'Custom Config'}",
             log_file,
         )
         print(f"Target: {target_path}")
         if specific_files:
-            print(f"Analyzing {len(specific_files)} specific files based on criteria (e.g., git diff).")
+            print(
+                f"Analyzing {len(specific_files)} specific files based on criteria (e.g., git diff)."
+            )
         print()
-    
+
         # Create task
-        target = Path(target_path)
+        target = Path(target_path).resolve()
         if review_mode == "github_pr" and pr_details:
             # PR-specific task
             pr_title = pr_details.get("title", "Unknown")
             task = f"Review PR #{pr_number}: {pr_title}"
             if specific_files:
-                files_str = "\n".join([f"- {Path(f).relative_to(target)}" for f in specific_files[:20]])
+                files_str = "\n".join(
+                    [f"- {_safe_relative_to(f, target)}" for f in specific_files[:20]]
+                )
                 if len(specific_files) > 20:
                     files_str += f"\n... and {len(specific_files) - 20} more"
             else:
                 files_str = "No changed files found in PR"
             log_event(f"PR files:\n{files_str}", log_file)
         elif specific_files:
-            task = (
-                f"Analyze {len(specific_files)} changed files in {target.name} for bugs and regressions"
+            task = f"Analyze {len(specific_files)} changed files in {target.name} for bugs and regressions"
+            files_str = "\n".join(
+                [f"- {_safe_relative_to(f, target)}" for f in specific_files[:20]]
             )
-            files_str = "\n".join([f"- {Path(f).relative_to(target)}" for f in specific_files[:20]])
             if len(specific_files) > 20:
                 files_str += f"\n... and {len(specific_files) - 20} more"
             log_event(f"Targeting files:\n{files_str}", log_file)
@@ -527,9 +545,9 @@ async def find_bugs_with_consensus(
             task = f"Analyze {target.name} for bugs, issues, and potential regressions"
         else:
             task = f"Analyze the codebase in {target} for bugs, issues, and potential regressions"
-    
+
         log_event(f"TASK: {task}", log_file)
-    
+
         # Select instructions based on review mode
         if review_mode == "github_pr":
             worker_instructions = PR_WORKER_INSTRUCTIONS
@@ -549,7 +567,7 @@ async def find_bugs_with_consensus(
             Be thorough but focus on real issues, not style preferences.
             Format each issue clearly so it can be easily parsed.
             """
-    
+
             # Default orchestrator instructions - synthesize and coordinate
             orchestrator_instructions = """
             You are the lead coordinator for a team of code analysis agents.
@@ -575,7 +593,7 @@ async def find_bugs_with_consensus(
             ## Summary
             [Brief summary of overall code health and top priorities]
             """
-    
+
         # Orchestrator - runs after workers to synthesize results
         orchestrator_config = {
             "type": "gemini",
@@ -583,7 +601,7 @@ async def find_bugs_with_consensus(
             "role": "LeadCoordinator",
             "mode": "api",
         }
-    
+
         # Create worker agents
         workers = []
         if status_callback:
@@ -592,7 +610,7 @@ async def find_bugs_with_consensus(
         for i, config in enumerate(worker_configs):
             # Extract model if present, otherwise use type as fallback
             model = config.get("model", config.get("type", "unknown"))
-            
+
             agent = ExternalCLIConsensusAgent(
                 agent_id=f"{config['type']}_cli_agent_{i}",
                 role=config["role"],
@@ -606,13 +624,13 @@ async def find_bugs_with_consensus(
             workers.append(agent)
             log_event(f"  - {agent.role} (model: {model}, mode: cli)", log_file)
             print(f"Created worker: {agent.role} (model: {model})")
-    
+
         # Create orchestrator agent
         log_event("INITIALIZING ORCHESTRATOR:", log_file)
         model = orchestrator_config["model"]
         if not model.startswith("gemini/"):
             model = f"gemini/{model}"
-    
+
         if status_callback:
             status_callback("Initializing orchestrator agent...")
 
@@ -628,29 +646,29 @@ async def find_bugs_with_consensus(
             f"  - {orchestrator.role} (model: {orchestrator_config['model']}, mode: api)", log_file
         )
         print(f"Created orchestrator: {orchestrator.role} (model: {orchestrator_config['model']})")
-    
+
         # Prepare context for agents
         context = {"target_path": str(target)}
-    
+
         if specific_files:
             # Context includes listing of changed files
             context["focus_files"] = specific_files
             context["instruction_override"] = (
-                f"Focus your analysis ONLY on these files which have changed: {', '.join([str(Path(p).relative_to(target)) for p in specific_files])}"
+                f"Focus your analysis ONLY on these files which have changed: {', '.join([_safe_relative_to(p, target) for p in specific_files])}"
             )
-    
+
             # Read content of small number of files if possible
             if len(specific_files) < 10:
                 file_contents = {}
                 for p in specific_files:
                     try:
                         with open(p, "r", encoding="utf-8") as f:
-                            file_contents[str(Path(p).relative_to(target))] = f.read()
+                            file_contents[_safe_relative_to(p, target)] = f.read()
                     except (OSError, UnicodeDecodeError):
                         pass
                 if file_contents:
                     context["changed_files_content"] = file_contents
-    
+
         elif target.is_file():
             try:
                 with open(target, "r", encoding="utf-8") as f:
@@ -670,19 +688,30 @@ async def find_bugs_with_consensus(
                     context["file_listing"] += f" (and {len(files) - 50} more)"
             except Exception as e:
                 context["error"] = f"Could not list directory: {e}"
-    
+
         # Add PR context if in PR mode
         if review_mode == "github_pr" and pr_details:
-            from bug_finder.github_pr import format_pr_context_for_agents, format_reviewer_comments_for_ai
-            
+            from bug_finder.github_pr import (
+                format_pr_context_for_agents,
+                format_reviewer_comments_for_ai,
+            )
+
             context["review_mode"] = "github_pr"
             context["pr_number"] = pr_number
             context["pr_title"] = pr_details.get("title", "")
             context["pr_description"] = pr_details.get("body", "")
-            context["pr_author"] = pr_details.get("author", {}).get("login", "Unknown") if isinstance(pr_details.get("author"), dict) else str(pr_details.get("author", "Unknown"))
-            context["existing_reviewer_feedback"] = format_reviewer_comments_for_ai(pr_reviews, pr_comments)
-            context["pr_context"] = format_pr_context_for_agents(pr_details, pr_diff or "", pr_reviews, pr_comments)
-    
+            context["pr_author"] = (
+                pr_details.get("author", {}).get("login", "Unknown")
+                if isinstance(pr_details.get("author"), dict)
+                else str(pr_details.get("author", "Unknown"))
+            )
+            context["existing_reviewer_feedback"] = format_reviewer_comments_for_ai(
+                pr_reviews, pr_comments
+            )
+            context["pr_context"] = format_pr_context_for_agents(
+                pr_details, pr_diff or "", pr_reviews, pr_comments
+            )
+
         # ========================================
         # PHASE 1: Workers analyze code in parallel
         # ========================================
@@ -699,10 +728,10 @@ async def find_bugs_with_consensus(
         worker_manager.setup_network(topology="fully_connected")
 
         worker_results = worker_manager.execute_collaborative_task(
-            task=task, 
-            consensus_strategy="majority", 
+            task=task,
+            consensus_strategy="majority",
             context=context,
-            status_callback=status_callback
+            status_callback=status_callback,
         )
 
         log_event("WORKER RESPONSES:", log_file)
@@ -728,12 +757,12 @@ async def find_bugs_with_consensus(
             synthesis_task = f"""
 Review the following analysis from {len(worker_results["agent_results"])} AI code review agents for PR #{pr_number}.
 
-PR Title: {pr_details.get('title', 'Unknown')}
-PR Author: {context.get('pr_author', 'Unknown')}
-PR URL: {pr_details.get('url', 'N/A')}
+PR Title: {pr_details.get("title", "Unknown")}
+PR Author: {context.get("pr_author", "Unknown")}
+PR URL: {pr_details.get("url", "N/A")}
 
 === EXISTING REVIEWER FEEDBACK ===
-{context.get('existing_reviewer_feedback', 'No existing feedback')}
+{context.get("existing_reviewer_feedback", "No existing feedback")}
 
 === AI AGENT FINDINGS ===
 
@@ -785,8 +814,7 @@ Please synthesize these findings according to your instructions.
         print(f"\nAudit log written to: {log_file}")
 
         return result
-    
-    
+
 
 def main():
     """Main entry point."""
@@ -800,7 +828,7 @@ def main():
         help="Analyze only git-changed files (staged+unstaged+untracked)",
     )
     parser.add_argument("--clis", nargs="+", help="Specific CLIs to use (e.g. claude gemini codex)")
-    
+
     # PR review arguments
     parser.add_argument(
         "--pr",
@@ -840,12 +868,14 @@ def main():
     # Check if we should list available CLIs (maybe if a flag or special command, but let's stick to standard)
 
     specific_files = None
-    
+
     # PR mode takes precedence over diff mode
     if args.pr:
         # Validate that PR mode is not used with conflicting options
         if args.diff:
-            print("Warning: --diff is ignored when --pr is specified (PR files will be used instead)")
+            print(
+                "Warning: --diff is ignored when --pr is specified (PR files will be used instead)"
+            )
     elif args.diff:
         if not target_path.is_dir():
             print("Error: --diff flag can only be used with a directory/repo path.")

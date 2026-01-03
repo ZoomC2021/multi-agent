@@ -6,6 +6,7 @@ Orchestrates multiple agents to reach consensus through iterative collaboration.
 
 from typing import List, Dict, Any, Optional, Callable, Union
 import time
+import concurrent.futures
 from consensus_system.agent import ConsensusAgent
 
 
@@ -70,9 +71,11 @@ class ConsensusManager:
                     prev_agent = self.agents[(i - 1) % num_agents]
                     
                     # Add next and previous neighbors
+                    # Add neighbors regardless of whether they are the same (deduped in add_neighbor)
+                    # to correctly handle the 2-agent case where next == prev
                     if next_agent != agent:
                         agent.add_neighbor(next_agent)
-                    if prev_agent != agent and prev_agent != next_agent:
+                    if prev_agent != agent:
                         agent.add_neighbor(prev_agent)
 
         elif topology == "chain":
@@ -118,15 +121,18 @@ class ConsensusManager:
         # This prevents order-dependent bias where early-updated agents influence later ones in the same round
         new_values_map = {}
         for agent in self.agents:
-            new_values_map[agent] = agent.calculate_consensus_value(strategy)
+            # Use agent_id as key to avoid object identity issues
+            new_values_map[agent.agent_id] = agent.calculate_consensus_value(strategy)
 
         # Apply updates
         changes = []
-        for agent, new_val in new_values_map.items():
-            old_val = agent.value
-            if new_val != old_val:
-                agent.update_value(new_val)
-                changes.append((old_val, new_val))
+        for agent in self.agents:
+            if agent.agent_id in new_values_map:
+                new_val = new_values_map[agent.agent_id]
+                old_val = agent.value
+                if new_val != old_val:
+                    agent.update_value(new_val)
+                    changes.append((old_val, new_val))
 
         # Record iteration state
         iteration_state = {
@@ -152,6 +158,19 @@ class ConsensusManager:
 
         # Check numeric convergence threshold if changes occurred
         try:
+            # Check if we have any non-numeric changes
+            non_numeric_changes = [
+                (old, new)
+                for old, new in changes
+                if not (isinstance(new, (int, float)) and not isinstance(new, bool))
+                or not (isinstance(old, (int, float)) and not isinstance(old, bool))
+            ]
+
+            # If there are ANY non-numeric changes, we have not converged because strict equality failed
+            # (checked by 'if not changes' above).
+            if non_numeric_changes:
+                return False
+
             # Filter for numeric changes only
             numeric_changes = [
                 abs(new - old)
@@ -173,11 +192,11 @@ class ConsensusManager:
                     callback(iteration_state)
 
                 return converged
-            else:
-                # If changes were non-numeric (and we know changes list is not empty),
-                # then we haven't converged yet because equality check `new != old` passed.
-                # Only if NO changes occurred (handled above) do we return True for non-numeric.
-                return False
+            
+            # If we are here, it means 'changes' was not empty, but we found no non-numeric changes
+            # AND no numeric changes. This shouldn't theoretically happen given the logic above,
+            # but implies no significant change.
+            return True
 
         except (TypeError, ValueError) as e:
             # Log but don't crash on convergence check errors
@@ -230,40 +249,88 @@ class ConsensusManager:
         # Compute final consensus value
         final_values = [agent.value for agent in self.agents]
 
-        try:
-            # Check for numeric values, excluding booleans
-            numeric_values: List[Union[int, float]] = [
-                v for v in final_values if isinstance(v, (int, float)) and not isinstance(v, bool)
-            ]
+        # Calculate final result based on strategy and agent values
+        if strategy == "average":
+            try:
+                # Check for numeric values, excluding booleans
+                numeric_values: List[Union[int, float]] = [
+                    v for v in final_values if isinstance(v, (int, float)) and not isinstance(v, bool)
+                ]
 
-            if numeric_values:
-                consensus_value = sum(numeric_values) / len(numeric_values)
-            else:
-                # For non-numeric or empty, use most common value
-                if final_values:
-                    # Use object identity/equality for counting, not string conversion
-                    # We accept unhashable types by using a list of (value, count) tuples
-                    value_counts = []
-                    for val in final_values:
-                        found = False
-                        for i, (existing_val, count) in enumerate(value_counts):
-                            if existing_val == val:
-                                value_counts[i] = (existing_val, count + 1)
-                                found = True
-                                break
-                        if not found:
-                            value_counts.append((val, 1))
-                    
-                    if value_counts:
-                         # Find max count
-                        winner = max(value_counts, key=lambda x: x[1])
-                        consensus_value = winner[0]
-                    else:
-                        consensus_value = None
+                if numeric_values:
+                    consensus_value = sum(numeric_values) / len(numeric_values)
                 else:
                     consensus_value = None
-        except (TypeError, ValueError, AttributeError):
-            consensus_value = None
+            except (TypeError, ValueError):
+                consensus_value = None
+        
+        elif strategy == "majority":
+            # Majority vote
+            if final_values:
+                # Use object identity/equality for counting
+                value_counts = []
+                for val in final_values:
+                    if val is None:
+                        continue
+                    found = False
+                    for i, (existing_val, count) in enumerate(value_counts):
+                        if existing_val == val:
+                            value_counts[i] = (existing_val, count + 1)
+                            found = True
+                            break
+                    if not found:
+                        value_counts.append((val, 1))
+                
+                if value_counts:
+                    winner = max(value_counts, key=lambda x: x[1])
+                    consensus_value = winner[0]
+                else:
+                    consensus_value = None
+            else:
+                consensus_value = None
+
+        elif strategy == "weighted":
+            # Weighted average
+            numerator = 0.0
+            total_weight = 0.0
+            for agent in self.agents:
+                val = agent.value
+                if val is not None and isinstance(val, (int, float)) and not isinstance(val, bool):
+                    numerator += float(val) * agent.weight
+                    total_weight += agent.weight
+            
+            if total_weight > 0:
+                consensus_value = numerator / total_weight
+            else:
+                consensus_value = None
+        
+        else:
+            # Unknown strategy, fallback to majority
+            if self.verbose:
+                print(f"Warning: Unknown strategy {strategy}, falling back to majority for final value")
+            
+            if final_values:
+                value_counts = []
+                for val in final_values:
+                    if val is None:
+                        continue
+                    found = False
+                    for i, (existing_val, count) in enumerate(value_counts):
+                        if existing_val == val:
+                            value_counts[i] = (existing_val, count + 1)
+                            found = True
+                            break
+                    if not found:
+                        value_counts.append((val, 1))
+                
+                if value_counts:
+                    winner = max(value_counts, key=lambda x: x[1])
+                    consensus_value = winner[0]
+                else:
+                    consensus_value = None
+            else:
+                consensus_value = None
+
 
         results = {
             "converged": converged,
@@ -304,7 +371,6 @@ class ConsensusManager:
             print(f"Task: {task}")
 
         # Each agent executes the task in parallel
-        import concurrent.futures
 
         agent_results = []
         if self.verbose:

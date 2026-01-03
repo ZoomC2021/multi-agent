@@ -41,7 +41,12 @@ class ConsensusAgent:
         self.role = role
         self.instructions = instructions
         self.value = initial_value
+        
+        # Validate weight
+        if not isinstance(weight, (int, float)) or weight <= 0:
+            raise ValueError("weight must be a positive number")
         self.weight = weight
+        
         self.llm = llm
         self.verbose = verbose
         self.neighbors: List["ConsensusAgent"] = []
@@ -103,27 +108,45 @@ class ConsensusAgent:
             if not all_values:
                 return self.value
 
-            # Use precise counting instead of string conversion
-            # We use a list of (value, count) tuples since values might not be hashable
-            value_counts = []
+            # Use dictionary for O(n) counting of hashable values, 
+            # with fallback for unhashable values
+            counts: Dict[Any, int] = {}
+            unhashable_counts = [] # List of [value, count]
+            
             for val in all_values:
-                found = False
-                for i, (existing_val, count) in enumerate(value_counts):
-                    if existing_val == val:
-                        value_counts[i] = (existing_val, count + 1)
-                        found = True
-                        break
-                if not found:
-                    value_counts.append((val, 1))
-
-            # Find max count
-            if not value_counts:
+                try:
+                    counts[val] = counts.get(val, 0) + 1
+                except TypeError:
+                    # Handle unhashable values
+                    found = False
+                    for item in unhashable_counts:
+                        if item[0] == val:
+                            item[1] += 1
+                            found = True
+                            break
+                    if not found:
+                        unhashable_counts.append([val, 1])
+            
+            # Combine counts and find winner
+            if not counts and not unhashable_counts:
                 return self.value
-
-            # Find the value with the highest count
-            # In case of tie, pick the first one encountered (deterministic for stable sort)
-            winner = max(value_counts, key=lambda x: x[1])
-            return winner[0]
+                
+            winner_val = None
+            max_count = -1
+            
+            # Check hashable counts
+            for val, count in counts.items():
+                if count > max_count:
+                    max_count = count
+                    winner_val = val
+            
+            # Check unhashable counts
+            for val, count in unhashable_counts:
+                if count > max_count:
+                    max_count = count
+                    winner_val = val
+                    
+            return winner_val
 
         elif strategy == "weighted":
             # Weighted average consensus

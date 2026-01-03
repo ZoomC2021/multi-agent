@@ -97,7 +97,7 @@ class LiteLLMAgent(ConsensusAgent):
 
             # Pass API key for Gemini models if available, avoiding global env mutation
             api_key = None
-            if self.llm.startswith("gemini/"):
+            if "gemini" in self.llm.lower():
                 api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
             if api_key:
@@ -111,13 +111,13 @@ class LiteLLMAgent(ConsensusAgent):
             error = e
             if self.verbose:
                 print(f"[{self.role}] Error executing LiteLLM: {e}")
-            response = f"Error generating response: {str(error)}"
-
-        # Extract a quality score or metric from the response
-        if isinstance(response, str):
-            self.update_value(min(len(response) / 100.0, 10.0))
-        else:
+            response = str(error)
+            # Ensure value is 0 on error
             self.update_value(0.0)
+
+        # Extract a quality score or metric from the response ONLY if successful
+        if error is None and isinstance(response, str):
+            self.update_value(min(len(response) / 100.0, 10.0))
 
         result = {
             "agent_id": self.agent_id,
