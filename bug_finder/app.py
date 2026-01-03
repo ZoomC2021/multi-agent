@@ -64,31 +64,44 @@ with st.sidebar:
     st.header("🔍 PR Review Mode")
     st.caption("Review a GitHub Pull Request with AI agents")
     
-    pr_number_input = st.number_input(
-        "PR Number", 
-        min_value=1, 
-        value=1, 
-        step=1,
-        help="GitHub PR number to review"
-    )
-    pr_repo_input = st.text_input(
-        "Repository (optional)", 
-        value="",
-        placeholder="owner/repo",
-        help="Leave empty to use current repo"
+    enable_pr_mode = st.checkbox(
+        "Enable PR Review Mode", 
+        value=False,
+        help="Switch to review mode for a specific GitHub Pull Request"
     )
     
-    col1, col2 = st.columns(2)
-    with col1:
-        include_pr_comments = st.checkbox("Include Comments", value=True)
-    with col2:
-        include_pr_reviews = st.checkbox("Include Reviews", value=True)
-    
-    checkout_branch = st.checkbox(
-        "Checkout PR Branch", 
-        value=True,
-        help="Check out the PR branch locally for analysis"
-    )
+    if enable_pr_mode:
+        pr_number_input = st.number_input(
+            "PR Number", 
+            min_value=1, 
+            value=1, 
+            step=1,
+            help="GitHub PR number to review"
+        )
+        pr_repo_input = st.text_input(
+            "Repository (optional)", 
+            value="",
+            placeholder="owner/repo",
+            help="Leave empty to use current repo"
+        )
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            include_pr_comments = st.checkbox("Include Comments", value=True)
+        with col2:
+            include_pr_reviews = st.checkbox("Include Reviews", value=True)
+        
+        checkout_branch = st.checkbox(
+            "Checkout PR Branch", 
+            value=True,
+            help="Check out the PR branch locally for analysis"
+        )
+    else:
+        pr_number_input = None
+        pr_repo_input = ""
+        include_pr_comments = False
+        include_pr_reviews = False
+        checkout_branch = False
     
     st.divider()
 
@@ -123,7 +136,7 @@ if run_button:
             
             # Determine the effective PR number (handle type safety)
             effective_pr_number = None
-            if pr_number_input is not None and pr_number_input > 0:
+            if enable_pr_mode and pr_number_input is not None and pr_number_input > 0:
                 effective_pr_number = int(pr_number_input)
             
             # Handle conflict between diff_only and PR mode
