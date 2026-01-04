@@ -97,6 +97,10 @@ class LiteLLMAgent(ConsensusAgent):
             else:
                 res = completion(model=self.llm, messages=messages)
 
+            # Defensive check: ensure response has valid choices before accessing
+            if not res or not hasattr(res, 'choices') or not res.choices:
+                raise ValueError("LLM returned empty or malformed response (no choices)")
+
             response = res.choices[0].message.content
 
         except Exception as e:

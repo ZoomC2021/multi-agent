@@ -213,6 +213,16 @@ class ExternalCLIConsensusAgent(ConsensusAgent):
             f"cli={self.cli_type}, value={self.value})"
         )
 
+    def shutdown(self):
+        """Shut down the executor gracefully to release thread resources."""
+        if hasattr(self, '_executor') and self._executor:
+            self._executor.shutdown(wait=True)
+            self._executor = None
+
+    def __del__(self):
+        """Destructor to ensure executor cleanup on garbage collection."""
+        self.shutdown()
+
 
 def create_external_cli_agents(
     cli_types: List[str], task_instructions: str, workspace: str = ".", verbose: bool = False

@@ -61,8 +61,9 @@ class ConsensusAgent:
 
     def add_neighbor(self, agent: "ConsensusAgent"):
         """Add a neighboring agent for consensus communication."""
-        if agent not in self.neighbors and agent != self:
-            self.neighbors.append(agent)
+        with self._lock:
+            if agent not in self.neighbors and agent != self:
+                self.neighbors.append(agent)
 
     def update_value(self, new_value: Any):
         """Update the agent's current value and record in history."""
@@ -87,8 +88,15 @@ class ConsensusAgent:
             if not self.neighbors:
                 return self.value
 
-            # Get all valid (non-None) neighbor values
-            neighbor_values = [n.value for n in self.neighbors if n.value is not None]
+            # Thread-safe: take snapshots of neighbor values under their locks
+            # This prevents race conditions where neighbor values change during calculation
+            neighbor_snapshots = []  # List of (value, weight) tuples
+            for n in self.neighbors:
+                with n._lock:
+                    neighbor_snapshots.append((n.value, n.weight))
+
+            # Get all valid (non-None) neighbor values from snapshots
+            neighbor_values = [val for val, _ in neighbor_snapshots if val is not None]
 
             if strategy == "average":
                 # Average consensus (for numeric values, excluding booleans)
@@ -134,12 +142,11 @@ class ConsensusAgent:
                     numerator += float(self.value) * self.weight
                     total_weight += self.weight
 
-                # Process neighbors
-                for neighbor in self.neighbors:
-                    val = neighbor.value
+                # Process neighbors using snapshots (thread-safe)
+                for val, weight in neighbor_snapshots:
                     if val is not None and isinstance(val, (int, float)) and not isinstance(val, bool):
-                        numerator += float(val) * neighbor.weight
-                        total_weight += neighbor.weight
+                        numerator += float(val) * weight
+                        total_weight += weight
 
                 if total_weight > 0:
                     return numerator / total_weight

@@ -163,6 +163,45 @@ Output your final report in this format:
 [Specific actionable recommendations for the PR author]
 """
 
+# Filter model instructions - identifies infrastructure errors to exclude from synthesis
+FILTER_INSTRUCTIONS = """
+You are a result filter for a multi-agent code analysis system.
+
+Your job is to identify ONLY infrastructure/tool errors that should be EXCLUDED from the synthesis.
+Everything else MUST be passed through to the synthesis model unchanged.
+
+## FILTER OUT (Infrastructure Errors Only):
+These are environment/tool failures NOT related to code analysis:
+- BunInstallFailedError, npm/pip install failures
+- Authentication/API key errors
+- Network/timeout errors  
+- CLI tool crashes or startup failures
+- "Unexpected error, check log file" messages
+- Tool initialization failures
+
+## PASS THROUGH (Everything Else):
+ALL of these must go to synthesis, even if they seem incomplete:
+- Bug findings (any severity)
+- "No bugs found" responses
+- Partial analysis results
+- Unclear or vague responses
+- Any response that discusses the code
+
+BE CONSERVATIVE: When in doubt, PASS THROUGH to synthesis. Only filter clear infrastructure failures.
+
+Output your response in this exact JSON format:
+{
+    "infrastructure_errors": [
+        {"role": "WorkerName", "error_type": "BunInstallFailedError", "description": "Brief description of the tool failure"}
+    ],
+    "passed_through": ["Worker1", "Worker2", "Worker3"],
+    "total_passed": 3,
+    "total_filtered": 2
+}
+
+IMPORTANT: Do NOT filter out valid analysis - the synthesis model needs all code-related findings.
+"""
+
 
 def log_event(message: str, log_file: Path):
     """Log an event to the execution log file."""
@@ -188,6 +227,68 @@ def _format_worker_results(worker_results: dict) -> str:
             formatted.append(f"### {role}\n\n[FAILED: {error}]")
 
     return "\n\n---\n\n".join(formatted)
+
+
+def _apply_filter_to_results(worker_results: dict, filter_result: dict) -> dict:
+    """
+    Apply filter model's categorization to worker results.
+    
+    Removes infrastructure errors from results that will be sent to synthesis.
+    Returns both filtered results and error summary for frontend display.
+    """
+    import json
+    import re
+    
+    response = filter_result.get("response", "")
+    
+    # Try to parse JSON from response
+    parsed = None
+    try:
+        # Find JSON in response (may be wrapped in markdown code blocks)
+        json_match = re.search(r'```json?\s*([\s\S]*?)\s*```', response)
+        if json_match:
+            parsed = json.loads(json_match.group(1))
+        else:
+            parsed = json.loads(response)
+    except (json.JSONDecodeError, TypeError):
+        # If parsing fails, return all results as-is (fail-open)
+        return {
+            "filtered_results": worker_results,
+            "filter_applied": False,
+            "error_summary": [],
+            "valid_count": len(worker_results.get("agent_results", [])),
+            "error_count": 0,
+            "parse_error": "Could not parse filter response as JSON",
+        }
+    
+    # Extract error roles from filter response
+    error_roles = set()
+    error_summary = []
+    if parsed and "infrastructure_errors" in parsed:
+        for err in parsed["infrastructure_errors"]:
+            role = err.get("role", "")
+            error_roles.add(role)
+            error_summary.append({
+                "role": role,
+                "error_type": err.get("error_type", "Unknown"),
+                "description": err.get("description", ""),
+            })
+    
+    # Filter out infrastructure errors from results
+    filtered_agent_results = []
+    for agent_res in worker_results.get("agent_results", []):
+        role = agent_res.get("role", "")
+        if role not in error_roles:
+            filtered_agent_results.append(agent_res)
+    
+    return {
+        "filtered_results": {"agent_results": filtered_agent_results},
+        "filter_applied": True,
+        "error_summary": error_summary,
+        "valid_count": len(filtered_agent_results),
+        "error_count": len(error_summary),
+        "raw_filter_response": response,
+    }
 
 
 def print_results(result: dict, log_file: Path, json_file: Path, md_file: Path):
@@ -771,6 +872,62 @@ async def find_bugs_with_consensus(
             log_event(f"WORKER FAILURES: {len(failed_workers)}", log_file)
 
         # ========================================
+        # PHASE 1.5: Filter results to separate infrastructure errors
+        # ========================================
+        print(f"\n{'=' * 60}")
+        print("PHASE 1.5: Filtering results...")
+        print(f"{'=' * 60}")
+        if status_callback:
+            status_callback("Phase 1.5: Filtering worker results...")
+        log_event("PHASE 1.5: RESULT FILTERING", log_file)
+
+        # Create filter agent using gemini-3-flash-preview
+        filter_model = "gemini/gemini-3-flash-preview"
+        filter_agent = LiteLLMAgent(
+            agent_id="filter_api_agent",
+            role="ResultFilter",
+            instructions=FILTER_INSTRUCTIONS,
+            llm=filter_model,
+            initial_value=0.0,
+            verbose=verbose,
+        )
+        print(f"Created filter: ResultFilter (model: {filter_model})")
+
+        # Format all worker results for filtering
+        all_worker_findings = _format_worker_results(worker_results)
+        filter_task = f"""
+Analyze the following worker results and identify any infrastructure/tool errors that should be excluded from synthesis.
+
+=== WORKER RESULTS ===
+
+{all_worker_findings}
+
+=== END OF RESULTS ===
+
+Identify infrastructure errors only. Pass through all code analysis results.
+Provide your categorization in JSON format.
+"""
+
+        filter_result = filter_agent.execute(task=filter_task, context={})
+        log_event(f"Filter result:\n{filter_result.get('response')}", log_file)
+
+        # Apply filter to get clean results for orchestrator
+        filtered_findings = _apply_filter_to_results(worker_results, filter_result)
+        
+        if filtered_findings.get("filter_applied"):
+            print(f"  ✅ Passing {filtered_findings['valid_count']} valid results to synthesis")
+            if filtered_findings['error_count'] > 0:
+                print(f"  ⚠️  Filtered out {filtered_findings['error_count']} infrastructure error(s)")
+                for err in filtered_findings.get("error_summary", []):
+                    print(f"      - {err.get('role')}: {err.get('error_type')}")
+            if status_callback:
+                status_callback(f"Filtered: {filtered_findings['valid_count']} valid, {filtered_findings['error_count']} infrastructure errors")
+        else:
+            print("  ℹ️  Filter not applied (parse error or no errors detected)")
+            if status_callback:
+                status_callback("Filter: passing all results to synthesis")
+
+        # ========================================
         # PHASE 2: Orchestrator synthesizes results
         # ========================================
         print(f"\n{'=' * 60}")
@@ -780,13 +937,18 @@ async def find_bugs_with_consensus(
             status_callback("Phase 2: Orchestrator synthesizing findings...")
         log_event("PHASE 2: ORCHESTRATOR SYNTHESIS", log_file)
 
-        # Format worker results for the orchestrator
-        worker_findings = _format_worker_results(worker_results)
+        # Use filtered results for the orchestrator (infrastructure errors removed)
+        if filtered_findings.get("filter_applied"):
+            worker_findings = _format_worker_results(filtered_findings["filtered_results"])
+            num_agents = filtered_findings["valid_count"]
+        else:
+            worker_findings = _format_worker_results(worker_results)
+            num_agents = len(worker_results.get("agent_results", []))
 
         # Build synthesis task based on review mode
         if review_mode == "github_pr" and pr_details:
             synthesis_task = f"""
-Review the following analysis from {len(worker_results["agent_results"])} AI code review agents for PR #{pr_number}.
+Review the following analysis from {num_agents} AI code review agents for PR #{pr_number}.
 
 PR Title: {pr_details.get("title", "Unknown")}
 PR Author: {context.get("pr_author", "Unknown")}
@@ -805,7 +967,7 @@ Please synthesize these findings according to your instructions, comparing AI fi
 """
         else:
             synthesis_task = f"""
-Analyze the following bug reports from {len(worker_results["agent_results"])} code analysis agents.
+Analyze the following bug reports from {num_agents} code analysis agents.
 Synthesize their findings into a final consolidated report.
 
 Target: {target_path}
@@ -833,6 +995,11 @@ Please synthesize these findings according to your instructions.
             "final_decision": worker_results.get("final_decision", "N/A"),
             "orchestrator_result": orchestrator_result,
             "final_report": orchestrator_result.get("response", ""),
+            # Filter-related fields
+            "filter_result": filter_result,
+            "filtered_worker_results": filtered_findings.get("filtered_results", {}).get("agent_results", []),
+            "infrastructure_errors": filtered_findings.get("error_summary", []),
+            "filter_applied": filtered_findings.get("filter_applied", False),
         }
 
         # Add PR-specific data if in PR mode

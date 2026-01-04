@@ -406,8 +406,10 @@ class ConsensusManager:
                 new_value = None
 
             if new_value != agent.value:
-                with self._lock:
-                    agent.update_value(new_value)
+                # Note: agent.update_value() acquires agent._lock internally.
+                # We don't hold manager lock here to avoid deadlock if agents
+                # try to access manager state from their execution threads.
+                agent.update_value(new_value)
 
             # Ensure the result dictionary reflects the updated value
             result["value"] = new_value

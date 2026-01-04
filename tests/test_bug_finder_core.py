@@ -69,7 +69,8 @@ def test_find_bugs_with_consensus_flow(tmp_path):
             mock_manager_instance.execute_collaborative_task.assert_called_once()
             
             # 3. Check if orchestrator was executed
-            mock_orchestrator_instance.execute.assert_called_once()
+            # Note: execute is called twice - once for filter agent, once for orchestrator
+            assert mock_orchestrator_instance.execute.call_count == 2
             
             # 4. Check result structure
             assert result["worker_results"] == mock_worker_results["agent_results"]

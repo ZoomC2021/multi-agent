@@ -128,6 +128,13 @@ if run_button:
     else:
         selected_configs = [DEFAULT_WORKER_CONFIGS[i] for i in selected_indices]
         
+        # Validate orchestrator API key upfront
+        import os
+        orchestrator_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        if not orchestrator_api_key:
+            st.error("❌ Orchestrator API key not configured. Please set `GEMINI_API_KEY` or `GOOGLE_API_KEY` in your environment or `.env` file.")
+            st.stop()
+        
         target = Path(target_path)
         if not target.exists():
             st.error(f"Target path does not exist: {target_path}")
@@ -327,19 +334,28 @@ if review_mode == "github_pr":
     pr_details = data.get("pr_details", {})
     st.markdown(f"**Mode:** 🔍 PR Review | **PR:** [#{pr_details.get('number', 'N/A')}]({pr_details.get('url', '#')})")
 
-# Tabs - dynamic based on review mode
+# Tabs - dynamic based on review mode (now includes Worker Errors tab)
 if review_mode == "github_pr":
-    tab1, tab_pr, tab2, tab3, tab4 = st.tabs(
-        ["📝 Final Report", "📌 PR Context", "👷 Worker Findings", "📊 Consensus Stats", "🔍 Raw Data"]
+    tab1, tab_pr, tab_errors, tab2, tab3, tab4 = st.tabs(
+        ["📝 Final Report", "📌 PR Context", "⚠️ Worker Errors", "👷 Worker Findings", "📊 Consensus Stats", "🔍 Raw Data"]
     )
 else:
-    tab1, tab2, tab3, tab4 = st.tabs(
-        ["📝 Final Report", "👷 Worker Findings", "📊 Consensus Stats", "🔍 Raw Data"]
+    tab1, tab_errors, tab2, tab3, tab4 = st.tabs(
+        ["📝 Final Report", "⚠️ Worker Errors", "👷 Worker Findings", "📊 Consensus Stats", "🔍 Raw Data"]
     )
     tab_pr = None  # No PR tab in non-PR mode
 
 with tab1:
     st.header("Consolidated Final Report")
+    
+    # Show infrastructure error summary if any were filtered
+    infrastructure_errors = data.get("infrastructure_errors", [])
+    if infrastructure_errors:
+        with st.expander(f"⚠️ {len(infrastructure_errors)} Worker(s) Failed (Infrastructure Issues)", expanded=False):
+            for err in infrastructure_errors:
+                st.markdown(f"**{err.get('role')}**: `{err.get('error_type')}` - {err.get('description')}")
+            st.caption("These errors are unrelated to the code being analyzed and were filtered from the synthesis.")
+    
     report = data.get("final_report", "")
 
     # Check if report is empty or purely whitespace
@@ -374,6 +390,71 @@ with tab1:
     if "orchestrator_result" in data:
         with st.expander("Orchestrator Details"):
             st.json(data["orchestrator_result"])
+
+# Worker Errors tab - detailed view of all infrastructure errors
+with tab_errors:
+    st.header("Worker Infrastructure Errors")
+    
+    infrastructure_errors = data.get("infrastructure_errors", [])
+    workers = data.get("worker_results", [])
+    failed_workers = [w for w in workers if not w.get("success", True)]
+    
+    if not infrastructure_errors and not failed_workers:
+        st.success("✅ All workers completed successfully!")
+    else:
+        # Summary metrics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Workers", len(workers))
+        with col2:
+            st.metric("Successful", len(workers) - len(failed_workers))
+        with col3:
+            st.metric("Failed", len(failed_workers))
+        
+        st.divider()
+        
+        if infrastructure_errors:
+            st.subheader("🔧 Infrastructure Errors (Filtered from Synthesis)")
+            st.caption("These errors were identified as environment/tool issues and excluded from the final analysis.")
+            
+            for err in infrastructure_errors:
+                with st.expander(f"❌ {err.get('role')} - {err.get('error_type')}", expanded=True):
+                    st.markdown(f"**Error Type:** `{err.get('error_type')}`")
+                    st.markdown(f"**Description:** {err.get('description')}")
+                    
+                    # Find the full error from worker_results
+                    for w in workers:
+                        if w.get("role") == err.get("role"):
+                            full_error = w.get("error", "")
+                            response = w.get("response", "")
+                            if full_error:
+                                st.subheader("Full Error Output")
+                                st.code(full_error, language="text")
+                            if response and response != full_error:
+                                st.subheader("Response Content")
+                                st.code(response, language="text")
+                            break
+        
+        # Show any other failures not caught by filter
+        filtered_roles = [e.get("role") for e in infrastructure_errors]
+        other_failures = [w for w in failed_workers if w.get("role") not in filtered_roles]
+        if other_failures:
+            st.subheader("⚠️ Other Worker Failures")
+            for w in other_failures:
+                with st.expander(f"❌ {w.get('role')}", expanded=True):
+                    st.error(w.get("error", "Unknown error"))
+                    response = w.get("response", "")
+                    if response:
+                        st.subheader("Response Content")
+                        st.code(response, language="text")
+        
+        # Filter model raw response for debugging
+        filter_result = data.get("filter_result", {})
+        if filter_result:
+            with st.expander("🔍 Filter Model Response (Debug)"):
+                st.json(filter_result)
+
+
 
 # PR Context tab (only shown in PR mode)
 if tab_pr is not None:

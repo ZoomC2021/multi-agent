@@ -173,11 +173,11 @@ class ExternalCLIIntegration(ABC):
             # potentially embedded even if shell=False (defense in depth)
             for char in forbidden_chars:
                 if char in arg:
-                    # Allow logical file paths/args but warn or fail on suspicious shell syntax
-                    # For now, we allow them but ensure they are harmless via direct exec keying
-                    # But if strict security is requested:
-                    if self.verbose:
-                         print(f"[{self.CLI_NAME}] Warning: Argument contains shell character '{char}': {arg}")
+                    # Security: Block execution on suspicious shell syntax
+                    raise ValueError(
+                        f"CLI argument contains forbidden shell character '{char}': {arg!r}. "
+                        "This is blocked for security reasons."
+                    )
 
 
         # Initialize process to None to avoid UnboundLocalError
