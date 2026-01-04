@@ -155,6 +155,8 @@ class ExternalCLIConsensusAgent(ConsensusAgent):
             - value: Consensus value
             - success: Whether execution succeeded
             - cli: CLI type used
+            - events: Streaming events (if available)
+            - tool_calls: Tool invocations (if available)
         """
         if self.verbose:
             print(f"[{self.role}] Executing: {task}")
@@ -188,6 +190,14 @@ class ExternalCLIConsensusAgent(ConsensusAgent):
 
         if not success:
             agent_result["error"] = result.get("error", "Unknown error")
+            
+        # Pass through streaming event data if available (from OpenCode and similar CLIs)
+        if "events" in result:
+            agent_result["events"] = result["events"]
+        if "tool_calls" in result:
+            agent_result["tool_calls"] = result["tool_calls"]
+        if "steps" in result:
+            agent_result["steps"] = result["steps"]
 
         if self.verbose:
             preview = response[:100] if response else "(no response)"
@@ -221,7 +231,11 @@ class ExternalCLIConsensusAgent(ConsensusAgent):
 
     def __del__(self):
         """Destructor to ensure executor cleanup on garbage collection."""
-        self.shutdown()
+        try:
+            self.shutdown()
+        except (AttributeError, TypeError, ImportError):
+            # Suppress errors during interpreter shutdown when globals may be destroyed
+            pass
 
 
 def create_external_cli_agents(

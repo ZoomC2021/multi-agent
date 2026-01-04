@@ -563,8 +563,12 @@ with tab2:
 
         success = worker.get("success", True)
         status_icon = "✅" if success else "❌"
+        
+        # Build header with tool call count if available
+        tool_calls = worker.get("tool_calls", [])
+        header_suffix = f" ({len(tool_calls)} tool calls)" if tool_calls else ""
 
-        with st.expander(f"{status_icon} {role}"):
+        with st.expander(f"{status_icon} {role}{header_suffix}"):
             if not success:
                 st.error(f"Error: {worker.get('error', 'Unknown error')}")
 
@@ -575,6 +579,79 @@ with tab2:
                 st.text("No response content.")
 
             st.divider()
+            
+            # Display tool calls if available
+            if tool_calls:
+                st.subheader("🔧 Tool Calls")
+                for j, tool_call in enumerate(tool_calls):
+                    tool_name = tool_call.get("tool", "unknown")
+                    status = tool_call.get("status", "")
+                    title = tool_call.get("title", "")
+                    
+                    tool_header = f"{tool_name}"
+                    if title:
+                        tool_header += f": {title}"
+                    if status:
+                        status_emoji = "✅" if status == "completed" else "⏳"
+                        tool_header += f" {status_emoji}"
+                    
+                    # Use st.text to prevent XSS from LLM-generated content
+                    st.text(f"🔧 {tool_header}")
+                    
+                    # Show input
+                    tool_input = tool_call.get("input", {})
+                    if tool_input:
+                        if isinstance(tool_input, dict):
+                            # Pretty format common inputs
+                            if "command" in tool_input:
+                                st.code(tool_input.get("command", ""), language="bash")
+                            else:
+                                st.json(tool_input)
+                        else:
+                            st.code(str(tool_input))
+                    
+                    # Show output (collapsed for long outputs)
+                    tool_output = tool_call.get("output", "")
+                    if tool_output:
+                        output_str = str(tool_output)
+                        if len(output_str) > 500:
+                            with st.expander("Output (click to expand)"):
+                                st.code(output_str, language="text")
+                        else:
+                            st.code(output_str, language="text")
+                    
+                    if j < len(tool_calls) - 1:
+                        st.markdown("---")
+                
+                st.divider()
+            
+            # Display step information if available
+            steps = worker.get("steps", [])
+            if steps:
+                st.subheader("📊 Execution Steps")
+                start_steps = [s for s in steps if s.get("type") == "start"]
+                finish_steps = [s for s in steps if s.get("type") == "finish"]
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Steps", len(start_steps))
+                with col2:
+                    total_tokens = sum(
+                        s.get("tokens", {}).get("input", 0) + s.get("tokens", {}).get("output", 0)
+                        for s in finish_steps
+                    )
+                    st.metric("Total Tokens", total_tokens)
+                
+                # Show token breakdown for each step
+                for k, finish in enumerate(finish_steps):
+                    tokens = finish.get("tokens", {})
+                    reason = finish.get("reason", "")
+                    input_tokens = tokens.get("input", 0)
+                    output_tokens = tokens.get("output", 0)
+                    st.caption(f"Step {k+1}: {input_tokens} in / {output_tokens} out ({reason})")
+                
+                st.divider()
+
             st.caption(f"Agent ID: {agent_id}")
             st.caption(f"Value: {worker.get('value', 'N/A')}")
 

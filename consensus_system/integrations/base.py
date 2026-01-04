@@ -164,7 +164,9 @@ class ExternalCLIIntegration(ABC):
         # Validate arguments (Security fix)
         # Ensure shell=False is used (implicit in create_subprocess_exec)
         # and validate arguments are safe strings
-        forbidden_chars = [";", "&", "|", "`", "$", "(", ")", ">", "<"]
+        # Note: We only block shell metacharacters that could cause command injection
+        # Parentheses are safe with shell=False (subcommand execution requires $)
+        forbidden_chars = [";", "&", "|", "`", "$", ">", "<"]
         for arg in args:
             if not isinstance(arg, str):
                 raise ValueError(f"All CLI arguments must be strings, got: {type(arg)}")

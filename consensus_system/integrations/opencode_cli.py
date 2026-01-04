@@ -81,6 +81,86 @@ class OpenCodeCLIIntegration(ExternalCLIIntegration):
             raise CLINotFoundError(f"{self.CLI_NAME} CLI not found in PATH. {self.INSTALL_HINT}")
         # Note: No API key check - OpenCode handles auth internally
 
+    def _parse_ndjson_events(self, output: str) -> Dict[str, Any]:
+        """
+        Parse NDJSON streaming output from OpenCode CLI.
+        
+        Extracts structured events (step_start, text, tool_use, step_finish)
+        and combines text content into a final response.
+        
+        Args:
+            output: Raw NDJSON output (one JSON object per line)
+            
+        Returns:
+            Dictionary with:
+            - response: Combined text content
+            - events: List of all parsed events
+            - tool_calls: List of tool usage events
+            - steps: List of step events with timing info
+        """
+        import json
+        
+        events = []
+        text_parts = []
+        tool_calls = []
+        steps = []
+        
+        for line in output.strip().split("\n"):
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+                events.append(event)
+                
+                event_type = event.get("type", "")
+                part = event.get("part", {})
+                
+                if event_type == "text":
+                    text = part.get("text", "")
+                    if text:
+                        text_parts.append(text)
+                        
+                elif event_type == "tool_use":
+                    state = part.get("state", {})
+                    tool_calls.append({
+                        "tool": part.get("tool", "unknown"),
+                        "call_id": part.get("callID", ""),
+                        "status": state.get("status", ""),
+                        "input": state.get("input", {}),
+                        "output": state.get("output", ""),
+                        "title": state.get("title", ""),
+                        "time": state.get("time", {}),
+                    })
+                    
+                elif event_type == "step_start":
+                    steps.append({
+                        "type": "start",
+                        "timestamp": event.get("timestamp"),
+                        "session_id": event.get("sessionID"),
+                        "message_id": part.get("messageID"),
+                    })
+                    
+                elif event_type == "step_finish":
+                    steps.append({
+                        "type": "finish",
+                        "timestamp": event.get("timestamp"),
+                        "reason": part.get("reason", ""),
+                        "tokens": part.get("tokens", {}),
+                        "cost": part.get("cost", 0),
+                    })
+                    
+            except json.JSONDecodeError:
+                # Not valid JSON, skip
+                continue
+        
+        return {
+            "response": "\n".join(text_parts),
+            "events": events,
+            "tool_calls": tool_calls,
+            "steps": steps,
+            "event_count": len(events),
+        }
+
     async def execute(
         self, prompt: str, context: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
@@ -88,6 +168,7 @@ class OpenCodeCLIIntegration(ExternalCLIIntegration):
         Execute a prompt using OpenCode CLI.
 
         Uses the `opencode run` command for non-interactive execution.
+        Output is captured as NDJSON streaming events for detailed visibility.
 
         Args:
             prompt: The task/prompt to execute
@@ -95,9 +176,11 @@ class OpenCodeCLIIntegration(ExternalCLIIntegration):
 
         Returns:
             Dictionary with:
-            - response: OpenCode's response
+            - response: OpenCode's response (combined text)
             - success: Whether execution succeeded
             - raw_output: Raw CLI output
+            - events: Parsed streaming events
+            - tool_calls: List of tool invocations
         """
         args = self._build_args(prompt, context)
 
@@ -113,26 +196,28 @@ class OpenCodeCLIIntegration(ExternalCLIIntegration):
                     "cli": self.CLI_NAME,
                 }
 
-            # Parse output based on format
-            if self.output_format == "json":
-                parsed = self._parse_json_output(result.stdout)
-                # Handle case where parsed is a list (JSON array) not a dict
-                if isinstance(parsed, dict):
-                    response = parsed.get(
-                        "result", parsed.get("content", parsed.get("response", result.stdout))
+            # Parse NDJSON streaming output
+            parsed = self._parse_ndjson_events(result.stdout)
+            response = parsed.get("response", "")
+            
+            # Fallback: if no text events found, try legacy JSON parsing
+            if not response and result.stdout.strip():
+                legacy_parsed = self._parse_json_output(result.stdout)
+                if isinstance(legacy_parsed, dict):
+                    response = legacy_parsed.get(
+                        "result", legacy_parsed.get("content", legacy_parsed.get("response", result.stdout))
                     )
                 else:
-                    # JSON array or other non-dict type - use raw output
                     response = result.stdout
-            else:
-                response = result.stdout
-                parsed = {"raw": result.stdout}
 
             return {
                 "response": response,
                 "success": True,
                 "raw_output": result.stdout,
                 "parsed": parsed,
+                "events": parsed.get("events", []),
+                "tool_calls": parsed.get("tool_calls", []),
+                "steps": parsed.get("steps", []),
                 "cli": self.CLI_NAME,
             }
 
@@ -147,6 +232,10 @@ class OpenCodeCLIIntegration(ExternalCLIIntegration):
         # Model selection (provider/model format)
         if self.model:
             args.extend(["--model", self.model])
+            
+        # Use JSON format for structured streaming output (respects output_format setting)
+        if self.output_format == "json":
+            args.extend(["--format", "json"])
 
         # Continue last session
         if self.continue_session:
